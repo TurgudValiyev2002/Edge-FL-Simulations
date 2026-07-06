@@ -123,6 +123,7 @@ let latestResult = null;
 let confirmAction = null;
 let pendingConfig = null;
 let lastNodeHitboxes = [];
+let datasetReturnView = "home";
 
 const els = {
   views: {
@@ -166,6 +167,7 @@ const els = {
   dlDropout: document.getElementById("dlDropout"),
   dlLockNote: document.getElementById("dlLockNote"),
   runSimulationButton: document.getElementById("runSimulationButton"),
+  configInspectDataset: document.getElementById("configInspectDataset"),
   splitBackConfig: document.getElementById("splitBackConfig"),
   splitRunSimulation: document.getElementById("splitRunSimulation"),
   splitInspectDataset: document.getElementById("splitInspectDataset"),
@@ -217,6 +219,7 @@ const els = {
   confusionCanvas: document.getElementById("confusionCanvas"),
   matrixBox: document.getElementById("matrixBox"),
   datasetsBackHome: document.getElementById("datasetsBackHome"),
+  datasetsBackConfig: document.getElementById("datasetsBackConfig"),
   datasetBrowserSelect: document.getElementById("datasetBrowserSelect"),
   datasetCards: document.getElementById("datasetCards"),
   datasetInspectTitle: document.getElementById("datasetInspectTitle"),
@@ -395,6 +398,7 @@ function wireEvents() {
     });
   });
   els.runSimulationButton.addEventListener("click", () => startGeneralSimulation());
+  els.configInspectDataset.addEventListener("click", () => openDatasetInspection("config", els.datasetSelect.value));
   els.splitBackConfig.addEventListener("click", () => showView("config"));
   els.splitBackConfigBottom.addEventListener("click", () => showView("config"));
   els.splitInspectDataset.addEventListener("click", () => {
@@ -408,9 +412,18 @@ function wireEvents() {
     if (pendingConfig) startSimulation(pendingConfig);
   });
   els.runPersonalizedButton.addEventListener("click", () => startPersonalizedSimulation());
-  els.startLiveButton.addEventListener("click", startLivePlayback);
+  els.startLiveButton.addEventListener("click", () => {
+    if (!activeSimulation || els.startLiveButton.disabled) return;
+    openConfirm(
+      activeSimulation.finished ? "Replay simulation?" : "Start live simulation?",
+      activeSimulation.finished
+        ? "The live animation and charts will replay from round 0."
+        : "The prepared simulation will begin. Metrics and animation will move round by round.",
+      startLivePlayback
+    );
+  });
   els.backToConfigButton.addEventListener("click", () => {
-    confirmIfRunning(
+    confirmIfSimulationActive(
       "Return to configuration?",
       "The current live simulation will end and you will return to the configuration page.",
       () => {
@@ -420,7 +433,7 @@ function wireEvents() {
     );
   });
   els.stopSimulationButton.addEventListener("click", () => {
-    confirmIfRunning(
+    confirmIfSimulationActive(
       "Stop simulation?",
       "The live experiment will stop and you will return to the home page.",
       () => {
@@ -437,11 +450,12 @@ function wireEvents() {
   });
   els.networkCanvas.addEventListener("click", handleNetworkClick);
   els.datasetsBackHome.addEventListener("click", () => requestHome());
+  els.datasetsBackConfig.addEventListener("click", () => showView(datasetReturnView === "split" ? "split" : "config"));
   els.datasetBrowserSelect.addEventListener("change", renderDatasetInspection);
 }
 
 function requestHome() {
-  confirmIfRunning(
+  confirmIfSimulationActive(
     "Go home?",
     "Your current experiment will stop and you will need to start from scratch. Are you okay with that?",
     () => {
@@ -452,7 +466,7 @@ function requestHome() {
 }
 
 function requestNavigation(viewName) {
-  confirmIfRunning(
+  confirmIfSimulationActive(
     "Leave current experiment?",
     "The active simulation will stop if you leave this page.",
     () => {
@@ -463,9 +477,7 @@ function requestNavigation(viewName) {
 }
 
 function openDatasetInspectionFromPending() {
-  els.datasetBrowserSelect.value = pendingConfig?.dataset?.id || els.datasetSelect.value;
-  renderDatasetInspection();
-  showView("datasets");
+  openDatasetInspection("split", pendingConfig?.dataset?.id || els.datasetSelect.value);
 }
 
 function confirmIfRunning(title, text, action) {
@@ -474,6 +486,23 @@ function confirmIfRunning(title, text, action) {
     return;
   }
   action();
+}
+
+function confirmIfSimulationActive(title, text, action) {
+  if (activeView === "simulation" && activeSimulation) {
+    openConfirm(title, text, action);
+    return;
+  }
+  action();
+}
+
+function openDatasetInspection(returnView, datasetId) {
+  datasetReturnView = returnView;
+  els.datasetBrowserSelect.value = datasetId;
+  els.datasetsBackConfig.classList.toggle("hidden", !["config", "split"].includes(returnView));
+  els.datasetsBackConfig.textContent = returnView === "split" ? "Back to Split Preview" : "Back to Config";
+  renderDatasetInspection();
+  showView("datasets");
 }
 
 function openConfirm(title, text, action) {

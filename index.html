@@ -74,6 +74,7 @@
             <div id="tensorFeatureNotice" class="notice hidden">
               This dataset is image or sequence based, so feature selection is handled as a tensor/window representation. We do not expose funny pixel-by-pixel checkboxes here.
             </div>
+            <button id="configInspectDataset" class="secondary-button full" type="button">Inspect Dataset</button>
           </section>
 
           <section class="panel">
@@ -333,7 +334,10 @@
             <p class="eyebrow">Dataset browser</p>
             <h2>Inspect Datasets</h2>
           </div>
-          <button id="datasetsBackHome" class="secondary-button compact" type="button">Home</button>
+          <div class="action-row">
+            <button id="datasetsBackConfig" class="secondary-button compact hidden" type="button">Back to Config</button>
+            <button id="datasetsBackHome" class="secondary-button compact" type="button">Home</button>
+          </div>
         </div>
         <div class="dataset-browser">
           <section class="panel">
