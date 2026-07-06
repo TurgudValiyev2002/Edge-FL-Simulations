@@ -1,10 +1,13 @@
-# Edge Federated Learning Simulator
+# FL Simulator
 
 An interactive Federated Learning simulator with a browser frontend and a Python backend for real dataset/model experiments.
 
 ## What It Shows
 
+- Home page with animated FL scene and a guided start flow.
 - Central server and edge clients with animated FL communication rounds.
+- Separate configuration and live simulation pages.
+- Separate Personalized FL configuration and live simulation flow.
 - Dataset selection for image-like, tabular, time-series-style, classification, and regression tasks.
 - Target-variable and feature selection.
 - Task-aware model choices.
@@ -59,6 +62,12 @@ Start the backend:
 
 ```bash
 python run_backend.py
+```
+
+On Windows you can also double-click:
+
+```text
+run_app.bat
 ```
 
 Open:
