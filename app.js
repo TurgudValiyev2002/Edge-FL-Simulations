@@ -131,10 +131,12 @@ const els = {
     personalized: document.getElementById("personalizedView"),
     split: document.getElementById("splitView"),
     simulation: document.getElementById("simulationView"),
+    datasets: document.getElementById("datasetsView"),
     howToUse: document.getElementById("howToUseView")
   },
   brandHomeButton: document.getElementById("brandHomeButton"),
   homeNav: document.getElementById("homeNav"),
+  datasetsNav: document.getElementById("datasetsNav"),
   personalizedNav: document.getElementById("personalizedNav"),
   howToUseNav: document.getElementById("howToUseNav"),
   themeToggle: document.getElementById("themeToggle"),
@@ -166,6 +168,10 @@ const els = {
   runSimulationButton: document.getElementById("runSimulationButton"),
   splitBackConfig: document.getElementById("splitBackConfig"),
   splitRunSimulation: document.getElementById("splitRunSimulation"),
+  splitInspectDataset: document.getElementById("splitInspectDataset"),
+  splitBackConfigBottom: document.getElementById("splitBackConfigBottom"),
+  splitRunSimulationBottom: document.getElementById("splitRunSimulationBottom"),
+  splitInspectDatasetBottom: document.getElementById("splitInspectDatasetBottom"),
   splitSummaryCanvas: document.getElementById("splitSummaryCanvas"),
   splitCanvas: document.getElementById("splitCanvas"),
   splitSummaryText: document.getElementById("splitSummaryText"),
@@ -177,6 +183,7 @@ const els = {
   sharedStrength: document.getElementById("sharedStrength"),
   adaptationEpochs: document.getElementById("adaptationEpochs"),
   runPersonalizedButton: document.getElementById("runPersonalizedButton"),
+  startLiveButton: document.getElementById("startLiveButton"),
   backToConfigButton: document.getElementById("backToConfigButton"),
   stopSimulationButton: document.getElementById("stopSimulationButton"),
   simulationModeLabel: document.getElementById("simulationModeLabel"),
@@ -185,6 +192,14 @@ const els = {
   networkCanvas: document.getElementById("networkCanvas"),
   roundLabel: document.getElementById("roundLabel"),
   phaseLabel: document.getElementById("phaseLabel"),
+  trainQualityLabel: document.getElementById("trainQualityLabel"),
+  trainQualityMetric: document.getElementById("trainQualityMetric"),
+  testQualityLabel: document.getElementById("testQualityLabel"),
+  testQualityMetric: document.getElementById("testQualityMetric"),
+  trainLossLabel: document.getElementById("trainLossLabel"),
+  trainLossMetric: document.getElementById("trainLossMetric"),
+  testLossLabel: document.getElementById("testLossLabel"),
+  testLossMetric: document.getElementById("testLossMetric"),
   nodeDetails: document.getElementById("nodeDetails"),
   primaryMetricLabel: document.getElementById("primaryMetricLabel"),
   primaryMetric: document.getElementById("primaryMetric"),
@@ -201,6 +216,13 @@ const els = {
   matrixTitle: document.getElementById("matrixTitle"),
   confusionCanvas: document.getElementById("confusionCanvas"),
   matrixBox: document.getElementById("matrixBox"),
+  datasetsBackHome: document.getElementById("datasetsBackHome"),
+  datasetBrowserSelect: document.getElementById("datasetBrowserSelect"),
+  datasetCards: document.getElementById("datasetCards"),
+  datasetInspectTitle: document.getElementById("datasetInspectTitle"),
+  datasetInspectMeta: document.getElementById("datasetInspectMeta"),
+  datasetInspectCanvas: document.getElementById("datasetInspectCanvas"),
+  datasetInspectTable: document.getElementById("datasetInspectTable"),
   confirmModal: document.getElementById("confirmModal"),
   confirmTitle: document.getElementById("confirmTitle"),
   confirmText: document.getElementById("confirmText"),
@@ -210,6 +232,7 @@ const els = {
 
 function init() {
   populateDatasets();
+  renderDatasetBrowser();
   wireEvents();
   renderDatasetConfig();
   renderModelOptions();
@@ -219,7 +242,7 @@ function init() {
 }
 
 function populateDatasets() {
-  [els.datasetSelect, els.personalizedDatasetSelect].forEach((select) => {
+  [els.datasetSelect, els.personalizedDatasetSelect, els.datasetBrowserSelect].forEach((select) => {
     select.innerHTML = "";
     datasets.forEach((dataset) => {
       const option = document.createElement("option");
@@ -231,9 +254,122 @@ function populateDatasets() {
   els.personalizedDatasetSelect.value = "heart_synthetic";
 }
 
+function renderDatasetBrowser() {
+  els.datasetCards.innerHTML = "";
+  datasets.forEach((dataset) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "dataset-card";
+    card.innerHTML = `<strong>${escapeHtml(dataset.name)}</strong><small>${escapeHtml(dataset.task)} · ${dataset.samples.toLocaleString()} samples</small>`;
+    card.addEventListener("click", () => {
+      els.datasetBrowserSelect.value = dataset.id;
+      renderDatasetInspection();
+    });
+    els.datasetCards.appendChild(card);
+  });
+  renderDatasetInspection();
+}
+
+function renderDatasetInspection() {
+  const dataset = getDataset(els.datasetBrowserSelect);
+  els.datasetInspectTitle.textContent = dataset.name;
+  els.datasetInspectMeta.innerHTML = `
+    <div><strong>${dataset.samples.toLocaleString()}</strong><small>Samples</small></div>
+    <div><strong>${dataset.task.replaceAll("-", " ")}</strong><small>Task</small></div>
+    <div><strong>${dataset.target}</strong><small>Target</small></div>
+    <div><strong>${dataset.featureMode === "tensor" ? "Tensor/window" : dataset.features.length}</strong><small>Features</small></div>
+  `;
+  drawDatasetInspection(dataset);
+  renderDatasetRows(dataset);
+}
+
+function drawDatasetInspection(dataset) {
+  const ctx = prepareCanvas(els.datasetInspectCanvas);
+  const width = els.datasetInspectCanvas.clientWidth || els.datasetInspectCanvas.width;
+  const height = els.datasetInspectCanvas.clientHeight || els.datasetInspectCanvas.height;
+  clearCanvas(ctx, width, height);
+  ctx.fillStyle = css("--text");
+  ctx.font = "900 18px system-ui";
+  ctx.fillText(dataset.summary, 28, 34, width - 56);
+
+  if (dataset.featureMode === "tensor" && dataset.id === "digits") {
+    const labels = dataset.classes.slice(0, 10);
+    const cell = Math.min(86, (width - 80) / labels.length);
+    labels.forEach((label, index) => {
+      const x = 36 + index * cell;
+      const y = 92;
+      drawDigitGlyph(ctx, label, x, y, cell - 12);
+      ctx.fillStyle = css("--muted");
+      ctx.font = "800 12px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(`label ${label}`, x + (cell - 12) / 2, y + cell + 8);
+    });
+    ctx.textAlign = "left";
+    return;
+  }
+
+  const labels = dataset.classes.length ? dataset.classes : ["low target", "mid target", "high target"];
+  labels.forEach((label, index) => {
+    const x = 40;
+    const y = 92 + index * 52;
+    const widthValue = 180 + ((index * 73 + dataset.samples) % 260);
+    ctx.fillStyle = palette[index % palette.length];
+    roundedRect(ctx, x, y, widthValue, 28, 7);
+    ctx.fill();
+    ctx.fillStyle = css("--text");
+    ctx.font = "800 13px system-ui";
+    ctx.fillText(String(label), x + widthValue + 14, y + 19);
+  });
+}
+
+function drawDigitGlyph(ctx, label, x, y, size) {
+  ctx.fillStyle = "#0b1220";
+  roundedRect(ctx, x, y, size, size, 8);
+  ctx.fill();
+  ctx.strokeStyle = "#38bdf8";
+  ctx.lineWidth = Math.max(3, size * 0.08);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  const cx = x + size / 2;
+  const top = y + size * 0.22;
+  const mid = y + size * 0.5;
+  const bottom = y + size * 0.78;
+  if (label === "0") ctx.ellipse(cx, mid, size * 0.25, size * 0.32, 0, 0, Math.PI * 2);
+  else if (label === "1") { ctx.moveTo(cx, top); ctx.lineTo(cx, bottom); }
+  else if (label === "2") { ctx.moveTo(x + size * 0.25, top); ctx.lineTo(x + size * 0.72, top); ctx.lineTo(x + size * 0.28, bottom); ctx.lineTo(x + size * 0.75, bottom); }
+  else if (label === "3") { ctx.moveTo(x + size * 0.28, top); ctx.lineTo(x + size * 0.72, mid); ctx.lineTo(x + size * 0.28, bottom); }
+  else if (label === "4") { ctx.moveTo(x + size * 0.25, top); ctx.lineTo(x + size * 0.25, mid); ctx.lineTo(x + size * 0.72, mid); ctx.lineTo(x + size * 0.72, bottom); }
+  else if (label === "5") { ctx.moveTo(x + size * 0.72, top); ctx.lineTo(x + size * 0.28, top); ctx.lineTo(x + size * 0.28, mid); ctx.lineTo(x + size * 0.72, mid); ctx.lineTo(x + size * 0.72, bottom); ctx.lineTo(x + size * 0.28, bottom); }
+  else if (label === "6") { ctx.moveTo(x + size * 0.68, top); ctx.lineTo(x + size * 0.3, mid); ctx.ellipse(cx, y + size * 0.62, size * 0.22, size * 0.2, 0, 0, Math.PI * 2); }
+  else if (label === "7") { ctx.moveTo(x + size * 0.25, top); ctx.lineTo(x + size * 0.75, top); ctx.lineTo(x + size * 0.45, bottom); }
+  else if (label === "8") { ctx.ellipse(cx, y + size * 0.34, size * 0.21, size * 0.16, 0, 0, Math.PI * 2); ctx.moveTo(cx + size * 0.21, y + size * 0.64); ctx.ellipse(cx, y + size * 0.64, size * 0.23, size * 0.18, 0, 0, Math.PI * 2); }
+  else { ctx.ellipse(cx, y + size * 0.38, size * 0.22, size * 0.18, 0, 0, Math.PI * 2); ctx.moveTo(x + size * 0.68, y + size * 0.5); ctx.lineTo(x + size * 0.34, bottom); }
+  ctx.stroke();
+}
+
+function renderDatasetRows(dataset) {
+  if (dataset.featureMode === "tensor") {
+    els.datasetInspectTable.innerHTML = `<table><thead><tr><th>Label</th><th>Representation</th><th>Meaning</th></tr></thead><tbody>${dataset.classes.slice(0, 10).map((label) => `<tr><td>${escapeHtml(label)}</td><td>8x8 image tensor</td><td>One representative image shown above</td></tr>`).join("")}</tbody></table>`;
+    return;
+  }
+  const shownFeatures = dataset.features.slice(0, 5);
+  const rows = Array.from({ length: 5 }, (_, rowIndex) => {
+    const cells = shownFeatures.map((feature, featureIndex) => pseudoValue(dataset, rowIndex, featureIndex));
+    const target = dataset.classes.length ? dataset.classes[rowIndex % dataset.classes.length] : (42 + rowIndex * 8.5).toFixed(2);
+    return `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}<td>${escapeHtml(String(target))}</td></tr>`;
+  });
+  els.datasetInspectTable.innerHTML = `<table><thead><tr>${shownFeatures.map((feature) => `<th>${escapeHtml(feature)}</th>`).join("")}<th>${escapeHtml(dataset.target)}</th></tr></thead><tbody>${rows.join("")}</tbody></table>`;
+}
+
+function pseudoValue(dataset, rowIndex, featureIndex) {
+  const base = ((dataset.samples + rowIndex * 17 + featureIndex * 31) % 100) / 10;
+  return base.toFixed(featureIndex % 2 ? 1 : 2);
+}
+
 function wireEvents() {
   els.brandHomeButton.addEventListener("click", () => requestHome());
   els.homeNav.addEventListener("click", () => requestHome());
+  els.datasetsNav.addEventListener("click", () => requestNavigation("datasets"));
   els.personalizedNav.addEventListener("click", () => requestNavigation("personalized"));
   els.howToUseNav.addEventListener("click", () => requestNavigation("howToUse"));
   els.themeToggle.addEventListener("click", () => document.body.classList.toggle("dark"));
@@ -260,10 +396,19 @@ function wireEvents() {
   });
   els.runSimulationButton.addEventListener("click", () => startGeneralSimulation());
   els.splitBackConfig.addEventListener("click", () => showView("config"));
+  els.splitBackConfigBottom.addEventListener("click", () => showView("config"));
+  els.splitInspectDataset.addEventListener("click", () => {
+    openDatasetInspectionFromPending();
+  });
+  els.splitInspectDatasetBottom.addEventListener("click", openDatasetInspectionFromPending);
   els.splitRunSimulation.addEventListener("click", () => {
     if (pendingConfig) startSimulation(pendingConfig);
   });
+  els.splitRunSimulationBottom.addEventListener("click", () => {
+    if (pendingConfig) startSimulation(pendingConfig);
+  });
   els.runPersonalizedButton.addEventListener("click", () => startPersonalizedSimulation());
+  els.startLiveButton.addEventListener("click", startLivePlayback);
   els.backToConfigButton.addEventListener("click", () => {
     confirmIfRunning(
       "Return to configuration?",
@@ -291,6 +436,8 @@ function wireEvents() {
     if (action) action();
   });
   els.networkCanvas.addEventListener("click", handleNetworkClick);
+  els.datasetsBackHome.addEventListener("click", () => requestHome());
+  els.datasetBrowserSelect.addEventListener("change", renderDatasetInspection);
 }
 
 function requestHome() {
@@ -313,6 +460,12 @@ function requestNavigation(viewName) {
       showView(viewName);
     }
   );
+}
+
+function openDatasetInspectionFromPending() {
+  els.datasetBrowserSelect.value = pendingConfig?.dataset?.id || els.datasetSelect.value;
+  renderDatasetInspection();
+  showView("datasets");
 }
 
 function confirmIfRunning(title, text, action) {
@@ -574,25 +727,40 @@ async function startSimulation(config) {
   els.simulationTitle.textContent = config.mode === "personalized" ? "Personalized FL Simulation" : `${config.dataset.name} Simulation`;
   setLoadingState(config);
   const fallback = makeFallbackResult(config);
-  activeSimulation = { config, result: fallback, round: 0, running: true, displayedCurve: [], displayedLoss: [] };
+  activeSimulation = { config, result: fallback, round: 0, running: false, prepared: true, finished: false, displayedCurve: [], displayedLoss: [] };
   latestResult = fallback;
   renderLiveState(0);
-  playLiveResult();
+  els.startLiveButton.disabled = true;
+  els.startLiveButton.textContent = "Preparing backend...";
 
   try {
     const backendResult = await requestBackendSimulation(config);
-    if (!activeSimulation?.running) return;
+    if (!activeSimulation) return;
     latestResult = adaptBackendResult(config, backendResult);
     activeSimulation.result = latestResult;
     activeSimulation.round = 0;
     activeSimulation.displayedCurve = [];
     activeSimulation.displayedLoss = [];
     renderLiveState(0);
-    playLiveResult();
+    els.startLiveButton.disabled = false;
+    els.startLiveButton.textContent = "Start Live Simulation";
   } catch (error) {
     latestResult = fallback;
+    els.startLiveButton.disabled = false;
+    els.startLiveButton.textContent = "Start Live Simulation";
     renderEvaluation(config, fallback, "Backend unavailable, showing local educational fallback.");
   }
+}
+
+function startLivePlayback() {
+  if (!activeSimulation) return;
+  activeSimulation.round = 0;
+  activeSimulation.running = true;
+  activeSimulation.finished = false;
+  els.startLiveButton.disabled = true;
+  els.startLiveButton.textContent = "Running...";
+  renderLiveState(0);
+  playLiveResult();
 }
 
 function setLoadingState(config) {
@@ -604,7 +772,7 @@ function setLoadingState(config) {
   els.commMetric.textContent = "0 MB";
   els.stabilityMetric.textContent = "0.00";
   els.phaseLabel.textContent = "Preparing client partitions";
-  els.roundLabel.textContent = "Round 0";
+  els.roundLabel.textContent = "Ready";
 }
 
 async function requestBackendSimulation(config) {
@@ -658,7 +826,10 @@ function playLiveResult() {
     const maxRound = activeSimulation.result.curve.length - 1;
     if (activeSimulation.round >= maxRound) {
       activeSimulation.running = false;
+      activeSimulation.finished = true;
       renderLiveState(maxRound);
+      els.startLiveButton.disabled = false;
+      els.startLiveButton.textContent = "Replay Live Simulation";
       clearInterval(liveTimer);
       return;
     }
@@ -692,12 +863,25 @@ function renderLiveState(round) {
     : ["Server sends global model", "Clients train locally", "Clients send updates", "Server aggregates updates"];
   const phase = phases[round % phases.length];
 
-  els.roundLabel.textContent = `Round ${round}`;
-  els.phaseLabel.textContent = phase;
+  const maxRound = Math.max(0, result.curve.length - 1);
+  els.roundLabel.textContent = activeSimulation.finished ? `Finished at round ${maxRound}` : `Round ${round} / ${maxRound}`;
+  els.phaseLabel.textContent = activeSimulation.finished ? "Training complete: final global model is ready" : (activeSimulation.running ? phase : "Ready: click Start Live Simulation");
   els.primaryMetricLabel.textContent = classification ? "Balanced accuracy" : "RMSE";
   els.lossMetricLabel.textContent = classification ? "Cross entropy" : "MSE loss";
   els.primaryMetric.textContent = finalMetric.toFixed(3);
   els.lossMetric.textContent = finalLoss.toFixed(3);
+  const trainMetricNow = trainCurve[trainCurve.length - 1] ?? 0;
+  const testMetricNow = curve[curve.length - 1] ?? 0;
+  const trainLossNow = trainLoss[trainLoss.length - 1] ?? 0;
+  const testLossNow = loss[loss.length - 1] ?? 0;
+  els.trainQualityLabel.textContent = classification ? "Train balanced accuracy" : "Train RMSE";
+  els.testQualityLabel.textContent = classification ? "Test balanced accuracy" : "Test RMSE";
+  els.trainLossLabel.textContent = classification ? "Train cross entropy" : "Train MSE";
+  els.testLossLabel.textContent = classification ? "Test cross entropy" : "Test MSE";
+  els.trainQualityMetric.textContent = formatMetric(trainMetricNow, classification);
+  els.testQualityMetric.textContent = formatMetric(testMetricNow, classification);
+  els.trainLossMetric.textContent = trainLossNow.toFixed(trainLossNow >= 10 ? 1 : 3);
+  els.testLossMetric.textContent = testLossNow.toFixed(testLossNow >= 10 ? 1 : 3);
   els.commMetric.textContent = formatMb(result.communication || 0);
   els.stabilityMetric.textContent = Number(result.stability || 0).toFixed(2);
   renderQualityChart(trainCurve, curve, validationCurve, classification);
@@ -812,11 +996,13 @@ function renderQualityChart(train, test, validation, classification) {
   renderMultiLineChart(els.qualityChart, {
     title: classification ? "Balanced accuracy over rounds" : "RMSE over rounds",
     yLabel: classification ? "Balanced accuracy" : "RMSE",
+    classification,
+    asPercent: classification,
     min,
     max,
     series: [
-      { label: "Train", values: train, color: css("--success") },
-      { label: "Test", values: test, color: css("--accent") },
+      { label: "Train", values: train, color: "#0f766e" },
+      { label: "Test", values: test, color: "#1d4ed8" },
       ...(validation.length ? [{ label: "Validation", values: validation, color: css("--warning") }] : [])
     ]
   });
@@ -827,11 +1013,13 @@ function renderLossChart(train, test, validation, classification) {
   renderMultiLineChart(els.lossChart, {
     title: classification ? "Cross entropy over rounds" : "MSE loss over rounds",
     yLabel: classification ? "Cross entropy" : "MSE loss",
+    classification: false,
+    asPercent: false,
     min: 0,
     max: Math.max(...train, ...test, ...validation, 1),
     series: [
-      { label: "Train", values: train, color: css("--success") },
-      { label: "Test", values: test, color: css("--danger") },
+      { label: "Train", values: train, color: "#7f1d1d" },
+      { label: "Test", values: test, color: "#1e3a8a" },
       ...(validation.length ? [{ label: "Validation", values: validation, color: css("--warning") }] : [])
     ]
   });
@@ -846,6 +1034,7 @@ function renderMultiLineChart(canvas, options) {
   drawGrid(ctx, width, height, plot, options.min, options.max, options.yLabel);
   options.series.forEach((series) => {
     drawLine(ctx, series.values, series.color, options.min, options.max, plot);
+    drawPointLabels(ctx, series.values, series.color, options.min, options.max, plot, options.asPercent);
   });
   ctx.fillStyle = css("--text");
   ctx.font = "900 17px system-ui";
@@ -858,6 +1047,26 @@ function renderMultiLineChart(canvas, options) {
     ctx.font = "800 12px system-ui";
     ctx.fillText(series.label, legendX + 22, 22);
     legendX += 92;
+  });
+}
+
+function drawPointLabels(ctx, values, color, minValue, maxValue, plot, asPercent) {
+  if (!values.length) return;
+  const range = Math.max(0.001, maxValue - minValue);
+  const labelEvery = values.length <= 12 ? 1 : Math.ceil(values.length / 10);
+  values.forEach((value, index) => {
+    const isFinal = index === values.length - 1;
+    if (!isFinal && index % labelEvery !== 0) return;
+    const x = plot.left + (plot.right - plot.left) * (index / Math.max(1, values.length - 1));
+    const y = plot.bottom - (plot.bottom - plot.top) * ((value - minValue) / range);
+    const text = asPercent ? `${(value * 100).toFixed(1)}%` : value.toFixed(value >= 10 ? 1 : 3);
+    ctx.font = `${isFinal ? "900 15px" : values.length <= 2 ? "900 14px" : "800 10px"} system-ui`;
+    const metrics = ctx.measureText(text);
+    ctx.fillStyle = isFinal ? color : colorWithAlpha(color, 0.14);
+    roundedRect(ctx, x + 6, y - (isFinal ? 26 : 18), metrics.width + 10, isFinal ? 22 : 16, 5);
+    ctx.fill();
+    ctx.fillStyle = isFinal ? "#ffffff" : color;
+    ctx.fillText(text, x + 11, y - (isFinal ? 10 : 6));
   });
 }
 
@@ -1044,7 +1253,7 @@ function drawNetwork() {
   const height = canvas.clientHeight || canvas.height;
   const clients = activeSimulation?.config?.clients || 5;
   const personalized = activeSimulation?.config?.mode === "personalized";
-  drawNetworkScene(ctx, width, height, Math.min(clients, 18), personalized ? "Shared core" : "Server", personalized);
+  drawNetworkScene(ctx, width, height, clients, personalized ? "Shared core" : "Server", personalized);
 }
 
 function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personalized) {
@@ -1059,10 +1268,15 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   const radius = Math.min(width, height) * 0.34;
   const phaseIndex = activeView === "simulation" && activeSimulation ? activeSimulation.round % 4 : Math.floor(animationClock * 3) % 4;
   lastNodeHitboxes = activeView === "simulation" ? [{ type: "server", index: 0, x: center.x, y: center.y, r: 58 }] : [];
+  const liveMotion = activeView !== "simulation" || activeSimulation?.running;
+  const finished = activeView === "simulation" && activeSimulation?.finished;
+  const nodeW = clientCount > 30 ? 28 : clientCount > 18 ? 34 : 48;
+  const nodeH = clientCount > 30 ? 22 : clientCount > 18 ? 26 : 34;
+  const nodeR = Math.max(16, nodeW * 0.7);
   for (let i = 0; i < clientCount; i += 1) {
     const angle = (Math.PI * 2 * i) / clientCount - Math.PI / 2;
     const client = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
-    if (activeView === "simulation") lastNodeHitboxes.push({ type: "client", index: i + 1, x: client.x, y: client.y, r: 30 });
+    if (activeView === "simulation") lastNodeHitboxes.push({ type: "client", index: i + 1, x: client.x, y: client.y, r: nodeR });
     ctx.strokeStyle = "rgba(148, 163, 184, 0.28)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -1070,17 +1284,19 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
     ctx.lineTo(client.x, client.y);
     ctx.stroke();
 
-    const direction = phaseIndex < 2 ? 1 : -1;
-    const t = (animationClock * 0.85 + i / clientCount) % 1;
-    const px = direction === 1 ? center.x + (client.x - center.x) * t : client.x + (center.x - client.x) * t;
-    const py = direction === 1 ? center.y + (client.y - center.y) * t : client.y + (center.y - client.y) * t;
-    ctx.fillStyle = phaseIndex < 2 ? "#38bdf8" : "#34d399";
-    ctx.beginPath();
-    ctx.arc(px, py, 4.5, 0, Math.PI * 2);
-    ctx.fill();
+    if (liveMotion) {
+      const direction = phaseIndex < 2 ? 1 : -1;
+      const t = (animationClock * 0.85 + i / clientCount) % 1;
+      const px = direction === 1 ? center.x + (client.x - center.x) * t : client.x + (center.x - client.x) * t;
+      const py = direction === 1 ? center.y + (client.y - center.y) * t : client.y + (center.y - client.y) * t;
+      ctx.fillStyle = phaseIndex < 2 ? "#38bdf8" : "#34d399";
+      ctx.beginPath();
+      ctx.arc(px, py, clientCount > 30 ? 3 : 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.fillStyle = palette[i % palette.length];
-    roundedRect(ctx, client.x - 24, client.y - 17, 48, 34, 7);
+    roundedRect(ctx, client.x - nodeW / 2, client.y - nodeH / 2, nodeW, nodeH, 7);
     ctx.fill();
     if (personalized) {
       ctx.fillStyle = "rgba(255,255,255,0.95)";
@@ -1089,12 +1305,12 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
       ctx.fill();
     }
     ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.font = "800 11px system-ui";
+    ctx.font = `${clientCount > 30 ? "700 8px" : clientCount > 18 ? "800 9px" : "800 11px"} system-ui`;
     ctx.textAlign = "center";
-    ctx.fillText(`C${i + 1}`, client.x, client.y + 4);
+    ctx.fillText(clientCount > 30 ? String(i + 1) : `C${i + 1}`, client.x, client.y + 4);
   }
 
-  ctx.fillStyle = personalized ? "#a78bfa" : "#38bdf8";
+  ctx.fillStyle = finished ? "#34d399" : personalized ? "#a78bfa" : "#38bdf8";
   ctx.beginPath();
   ctx.arc(center.x, center.y, 54, 0, Math.PI * 2);
   ctx.fill();
@@ -1103,7 +1319,7 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.textAlign = "center";
   ctx.fillText(centerLabel, center.x, center.y - 4);
   ctx.font = "700 11px system-ui";
-  ctx.fillText(personalized ? "+ local heads" : "global model", center.x, center.y + 15);
+  ctx.fillText(finished ? "finished" : personalized ? "+ local heads" : "global model", center.x, center.y + 15);
 }
 
 function handleNetworkClick(event) {
@@ -1115,20 +1331,47 @@ function handleNetworkClick(event) {
   if (!hit) return;
   const config = activeSimulation.config;
   if (hit.type === "server") {
+    const round = activeSimulation.round;
+    const testValue = activeSimulation.result.curve?.[round] ?? activeSimulation.result.finalMetric ?? 0;
+    const trainValue = activeSimulation.result.trainCurve?.[round] ?? testValue;
     els.nodeDetails.innerHTML = `
       <small>Server internals</small>
       <strong>${config.aggregation}</strong>
-      <p>Maintains the global model, receives client updates, aggregates them, and broadcasts the next global model. Raw client data is not stored here.</p>
+      <p>Round ${round}: collects participating client updates, applies ${config.aggregation}, then broadcasts the next global model. Train/test gap: ${formatMetric(Math.abs(trainValue - testValue), activeSimulation.result.classification)}.</p>
+      <p>${aggregationExplanation(config.aggregation)}</p>
     `;
     return;
   }
   const distribution = activeSimulation.result.distributions?.[hit.index - 1];
   const samples = distribution?.samples ?? Math.round(config.dataset.samples / config.clients);
+  const localCurve = localClientCurve(activeSimulation.result, hit.index);
+  const latest = localCurve[Math.min(activeSimulation.round, localCurve.length - 1)] ?? 0;
   els.nodeDetails.innerHTML = `
     <small>Client ${hit.index}</small>
     <strong>${samples} local samples</strong>
-    <p>Trains locally for ${config.local_epochs} epoch(s), keeps raw data private, then sends only model information to the server.</p>
+    <p>Local metric now: ${formatMetric(latest, activeSimulation.result.classification)}. Trains for ${config.local_epochs} local epoch(s), keeps raw data private, then sends model information to the server.</p>
+    <div class="mini-history">${localCurve.map((value, index) => `<span title="Round ${index}: ${formatMetric(value, activeSimulation.result.classification)}" style="height:${Math.max(8, valueToBar(value, activeSimulation.result.classification))}px"></span>`).join("")}</div>
   `;
+}
+
+function localClientCurve(result, clientIndex) {
+  const base = result.trainCurve?.length ? result.trainCurve : deriveTrainCurve(result.curve, result.classification);
+  const offset = ((clientIndex % 5) - 2) * (result.classification ? 0.012 : 0.025);
+  return base.map((value) => result.classification ? clamp(value + offset, 0, 0.995) : clamp(value + offset, 0.001, value + 0.2));
+}
+
+function aggregationExplanation(method) {
+  if (method === "FedAvg") return "FedAvg gives each participating client equal averaging influence.";
+  if (method === "Weighted FedAvg") return "Weighted FedAvg gives larger local datasets more influence in aggregation.";
+  if (method === "FedProx") return "FedProx limits how far local models drift from the global model.";
+  if (method === "FedMedian") return "FedMedian uses coordinate-wise median behavior to reduce abnormal update influence.";
+  if (method === "FedTrimmedMean") return "Trimmed mean removes extreme update directions before averaging.";
+  return "The server combines received client updates into the next global model.";
+}
+
+function valueToBar(value, classification) {
+  if (classification) return value * 48;
+  return Math.max(8, 48 - value * 28);
 }
 
 function roundedRect(ctx, x, y, w, h, r) {
@@ -1144,6 +1387,11 @@ function roundedRect(ctx, x, y, w, h, r) {
 function formatMb(value) {
   if (value >= 1024) return `${(value / 1024).toFixed(2)} GB`;
   return `${Number(value).toFixed(0)} MB`;
+}
+
+function formatMetric(value, classification) {
+  if (classification) return `${(Number(value) * 100).toFixed(1)}%`;
+  return Number(value).toFixed(Number(value) >= 10 ? 1 : 3);
 }
 
 function prepareCanvas(canvas) {

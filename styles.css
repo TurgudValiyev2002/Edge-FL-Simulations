@@ -285,7 +285,7 @@ h4 {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
   gap: 14px;
 }
 
@@ -444,6 +444,32 @@ input:disabled {
   align-content: start;
 }
 
+.metric-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.metric-compare div {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.metric-compare small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.metric-compare strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 18px;
+}
+
 .node-details {
   padding: 14px;
   border: 1px solid var(--line);
@@ -467,6 +493,25 @@ input:disabled {
   margin: 8px 0 0;
   color: var(--muted);
   line-height: 1.45;
+}
+
+.mini-history {
+  height: 58px;
+  display: flex;
+  align-items: end;
+  gap: 3px;
+  margin-top: 10px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.mini-history span {
+  flex: 1;
+  min-width: 4px;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
 }
 
 .metric-card {
@@ -508,12 +553,22 @@ input:disabled {
   grid-template-columns: auto 1fr;
   align-items: center;
   min-height: 42px;
-  padding-top: 20px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
 }
 
 .checkbox-line input {
   width: 18px;
   min-height: 18px;
+}
+
+.split-bottom-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .distribution-list {
@@ -589,6 +644,59 @@ th {
   gap: 18px;
 }
 
+.dataset-browser {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.55fr) minmax(440px, 1.45fr);
+  gap: 18px;
+}
+
+.dataset-cards {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  max-height: 580px;
+  overflow: auto;
+}
+
+.dataset-card {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.dataset-card strong {
+  display: block;
+}
+
+.dataset-card small,
+.inspect-meta {
+  color: var(--muted);
+}
+
+.inspect-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.inspect-meta div {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+#datasetInspectCanvas {
+  width: 100%;
+  display: block;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
 .guide-grid p {
   color: var(--muted);
   line-height: 1.58;
@@ -634,6 +742,7 @@ th {
   .config-layout,
   .split-layout,
   .live-layout,
+  .dataset-browser,
   .results-grid {
     grid-template-columns: 1fr;
   }
@@ -666,6 +775,7 @@ th {
 
   .form-grid,
   .check-list,
+  .inspect-meta,
   .guide-grid {
     grid-template-columns: 1fr;
   }

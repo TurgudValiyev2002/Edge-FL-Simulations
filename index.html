@@ -15,6 +15,7 @@
       </button>
       <nav class="nav-actions" aria-label="Main navigation">
         <button id="homeNav" type="button">Home</button>
+        <button id="datasetsNav" type="button">Datasets</button>
         <button id="personalizedNav" type="button">Personalized FL</button>
         <button id="howToUseNav" type="button">How to Use?</button>
         <button id="themeToggle" class="icon-button" type="button" title="Switch theme">◐</button>
@@ -157,6 +158,7 @@
           </div>
           <div class="action-row">
             <button id="splitBackConfig" class="secondary-button compact" type="button">Back to Config</button>
+            <button id="splitInspectDataset" class="secondary-button compact" type="button">Inspect Dataset</button>
             <button id="splitRunSimulation" class="primary-button compact" type="button">Run Simulation</button>
           </div>
         </div>
@@ -170,6 +172,11 @@
             <h3>Client Partitions</h3>
             <canvas id="splitCanvas" width="900" height="520"></canvas>
             <p id="splitExplanation" class="help-text"></p>
+            <div class="split-bottom-actions">
+              <button id="splitBackConfigBottom" class="secondary-button compact" type="button">Back to Config</button>
+              <button id="splitInspectDatasetBottom" class="secondary-button compact" type="button">Inspect Dataset</button>
+              <button id="splitRunSimulationBottom" class="primary-button compact" type="button">Run Simulation</button>
+            </div>
           </section>
         </div>
       </section>
@@ -237,6 +244,7 @@
             <h2 id="simulationTitle">Simulation Running</h2>
           </div>
           <div class="action-row">
+            <button id="startLiveButton" class="primary-button compact" type="button">Start Live Simulation</button>
             <button id="backToConfigButton" class="secondary-button compact" type="button">Back to Config</button>
             <button id="stopSimulationButton" class="danger-button compact" type="button">Stop Simulation</button>
           </div>
@@ -252,6 +260,24 @@
           </section>
 
           <aside class="panel metric-stack">
+            <div class="metric-compare">
+              <div>
+                <small id="trainQualityLabel">Train balanced accuracy</small>
+                <strong id="trainQualityMetric">0.000</strong>
+              </div>
+              <div>
+                <small id="testQualityLabel">Test balanced accuracy</small>
+                <strong id="testQualityMetric">0.000</strong>
+              </div>
+              <div>
+                <small id="trainLossLabel">Train loss</small>
+                <strong id="trainLossMetric">0.000</strong>
+              </div>
+              <div>
+                <small id="testLossLabel">Test loss</small>
+                <strong id="testLossMetric">0.000</strong>
+              </div>
+            </div>
             <div id="nodeDetails" class="node-details">
               <small>Click server or a client</small>
               <strong>FL internals</strong>
@@ -297,6 +323,29 @@
             <h3 id="matrixTitle">Confusion Matrix</h3>
             <canvas id="confusionCanvas" width="520" height="420"></canvas>
             <div id="matrixBox" class="matrix-box"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="datasetsView" class="view datasets-view">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Dataset browser</p>
+            <h2>Inspect Datasets</h2>
+          </div>
+          <button id="datasetsBackHome" class="secondary-button compact" type="button">Home</button>
+        </div>
+        <div class="dataset-browser">
+          <section class="panel">
+            <h3>Choose Dataset</h3>
+            <select id="datasetBrowserSelect"></select>
+            <div id="datasetCards" class="dataset-cards"></div>
+          </section>
+          <section class="panel">
+            <h3 id="datasetInspectTitle">Dataset Details</h3>
+            <div id="datasetInspectMeta" class="inspect-meta"></div>
+            <canvas id="datasetInspectCanvas" width="1000" height="460"></canvas>
+            <div id="datasetInspectTable" class="table-wrap"></div>
           </section>
         </div>
       </section>

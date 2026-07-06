@@ -334,7 +334,7 @@ def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBund
     last_probabilities: np.ndarray | None = None
 
     rng = np.random.default_rng(RANDOM_SEED)
-    for round_index in range(rounds):
+    for round_index in range(rounds + 1):
         participant_count = max(1, int(round(clients * client_fraction * (1.0 - dropout))))
         participant_ids = rng.choice(np.arange(clients), size=participant_count, replace=False)
         predictions = []
