@@ -385,10 +385,15 @@ input:disabled {
   line-height: 1.6;
 }
 
+.split-layout,
 .live-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 240px;
   gap: 18px;
+}
+
+.split-layout {
+  grid-template-columns: minmax(320px, 0.75fr) minmax(420px, 1.25fr);
 }
 
 .live-scene {
@@ -404,6 +409,15 @@ input:disabled {
   height: 100%;
   min-height: 480px;
   display: block;
+}
+
+#splitSummaryCanvas,
+#splitCanvas {
+  width: 100%;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
 }
 
 .scene-overlay {
@@ -428,6 +442,31 @@ input:disabled {
   display: grid;
   gap: 12px;
   align-content: start;
+}
+
+.node-details {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent), transparent 91%);
+}
+
+.node-details small {
+  display: block;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.node-details strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 18px;
+}
+
+.node-details p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .metric-card {
@@ -455,13 +494,26 @@ input:disabled {
   margin-top: 18px;
 }
 
-#metricChart,
+#qualityChart,
+#lossChart,
 #confusionCanvas {
   width: 100%;
   display: block;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
+}
+
+.checkbox-line {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  min-height: 42px;
+  padding-top: 20px;
+}
+
+.checkbox-line input {
+  width: 18px;
+  min-height: 18px;
 }
 
 .distribution-list {
@@ -580,6 +632,7 @@ th {
 @media (max-width: 1100px) {
   .hero-grid,
   .config-layout,
+  .split-layout,
   .live-layout,
   .results-grid {
     grid-template-columns: 1fr;

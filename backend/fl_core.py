@@ -288,13 +288,30 @@ def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBund
     y = dataset.y
     is_regression = "regression" in dataset.task
     stratify = None if is_regression or len(np.unique(y)) < 2 else y
-    X_train, X_test, y_train, y_test = train_test_split(
+    test_size = float(np.clip(float(config.get("test_size", 0.25)), 0.1, 0.5))
+    validation_size = float(np.clip(float(config.get("validation_size", 0.0)), 0.0, 0.3))
+
+    X_train_full, X_test, y_train_full, y_test = train_test_split(
         X,
         y,
-        test_size=0.25,
+        test_size=test_size,
         random_state=RANDOM_SEED,
         stratify=stratify,
     )
+    X_val = np.empty((0, X.shape[1]))
+    y_val = np.empty((0,), dtype=y.dtype)
+    if validation_size > 0:
+        relative_val = validation_size / max(0.01, 1.0 - test_size)
+        inner_stratify = None if is_regression or len(np.unique(y_train_full)) < 2 else y_train_full
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_train_full,
+            y_train_full,
+            test_size=relative_val,
+            random_state=RANDOM_SEED + 1,
+            stratify=inner_stratify,
+        )
+    else:
+        X_train, y_train = X_train_full, y_train_full
 
     clients = int(np.clip(int(config.get("clients", 5)), 2, 50))
     rounds = int(np.clip(int(config.get("rounds", 10)), 2, 50))
@@ -308,7 +325,11 @@ def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBund
     client_indices = partition_clients(y_train, clients, skew, is_regression)
     classes = np.unique(y_train) if not is_regression else None
     metric_curve: list[float] = []
+    train_metric_curve: list[float] = []
+    validation_metric_curve: list[float] = []
     loss_curve: list[float] = []
+    train_loss_curve: list[float] = []
+    validation_loss_curve: list[float] = []
     last_predictions: np.ndarray | None = None
     last_probabilities: np.ndarray | None = None
 
@@ -339,10 +360,19 @@ def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBund
 
         if is_regression:
             y_pred = aggregate_regression(predictions, weights, aggregation)
+            train_pred = aggregate_regression([pred for pred in [safe_predict_regression(model_id, X_train, y_train, X_train, local_epochs, round_index)] if pred is not None], [1.0], "FedAvg")
             loss = float(mean_squared_error(y_test, y_pred))
             rmse = float(np.sqrt(loss))
             metric_curve.append(rmse)
             loss_curve.append(loss)
+            train_loss = float(mean_squared_error(y_train, train_pred))
+            train_metric_curve.append(float(np.sqrt(train_loss)))
+            train_loss_curve.append(train_loss)
+            if len(y_val):
+                val_pred = aggregate_regression([pred for pred in [safe_predict_regression(model_id, X_train, y_train, X_val, local_epochs, round_index)] if pred is not None], [1.0], "FedAvg")
+                val_loss = float(mean_squared_error(y_val, val_pred))
+                validation_metric_curve.append(float(np.sqrt(val_loss)))
+                validation_loss_curve.append(val_loss)
             last_predictions = y_pred
         else:
             probs = aggregate_probabilities(probabilities, weights, aggregation)
@@ -351,6 +381,15 @@ def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBund
             loss = float(log_loss(y_test, probs, labels=classes))
             metric_curve.append(metric)
             loss_curve.append(loss)
+            train_probs = safe_predict_proba(model_id, X_train, y_train, X_train, classes, local_epochs, round_index)
+            train_pred = classes[np.argmax(train_probs, axis=1)]
+            train_metric_curve.append(float(balanced_accuracy_score(y_train, train_pred)))
+            train_loss_curve.append(float(log_loss(y_train, train_probs, labels=classes)))
+            if len(y_val):
+                val_probs = safe_predict_proba(model_id, X_train, y_train, X_val, classes, local_epochs, round_index)
+                val_pred = classes[np.argmax(val_probs, axis=1)]
+                validation_metric_curve.append(float(balanced_accuracy_score(y_val, val_pred)))
+                validation_loss_curve.append(float(log_loss(y_val, val_probs, labels=classes)))
             last_predictions = y_pred
             last_probabilities = probs
 
@@ -364,12 +403,24 @@ def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBund
         "dataset": _metadata(dataset),
         "classification": not is_regression,
         "curve": metric_curve,
+        "trainCurve": train_metric_curve,
+        "validationCurve": validation_metric_curve,
         "loss": loss_curve,
+        "trainLoss": train_loss_curve,
+        "validationLoss": validation_loss_curve,
         "communication": communication,
         "stability": stability,
         "distributions": distributions,
         "finalMetric": metric_curve[-1],
         "finalLoss": loss_curve[-1],
+        "splitInfo": {
+            "train": int(len(y_train)),
+            "validation": int(len(y_val)),
+            "test": int(len(y_test)),
+            "trainRatio": float(len(y_train) / len(y)),
+            "validationRatio": float(len(y_val) / len(y)),
+            "testRatio": float(len(y_test) / len(y)),
+        },
     }
     if is_regression:
         response["residualRows"] = residual_rows(y_test, np.asarray(last_predictions))
@@ -415,6 +466,33 @@ def make_model(model_id: str, is_regression: bool, local_epochs: int, round_inde
     if model_id in {"cnn_proxy", "vit_proxy"}:
         return make_pipeline(SimpleImputer(), StandardScaler(), MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=max_iter, random_state=seed))
     return make_pipeline(SimpleImputer(), StandardScaler(), MLPClassifier(hidden_layer_sizes=(80, 40), max_iter=max_iter, random_state=seed))
+
+
+def safe_predict_proba(
+    model_id: str,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_eval: np.ndarray,
+    classes: np.ndarray,
+    local_epochs: int,
+    round_index: int,
+) -> np.ndarray:
+    model = make_model(model_id, False, local_epochs, round_index)
+    model.fit(X_train, y_train)
+    return _predict_proba_aligned(model, X_eval, classes)
+
+
+def safe_predict_regression(
+    model_id: str,
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_eval: np.ndarray,
+    local_epochs: int,
+    round_index: int,
+) -> np.ndarray:
+    model = make_model(model_id, True, local_epochs, round_index)
+    model.fit(X_train, y_train)
+    return model.predict(X_eval)
 
 
 def partition_clients(y: np.ndarray, clients: int, skew: str, is_regression: bool) -> list[np.ndarray]:

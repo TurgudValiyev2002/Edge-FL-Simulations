@@ -121,12 +121,15 @@ let liveTimer = null;
 let animationClock = 0;
 let latestResult = null;
 let confirmAction = null;
+let pendingConfig = null;
+let lastNodeHitboxes = [];
 
 const els = {
   views: {
     home: document.getElementById("homeView"),
     config: document.getElementById("configView"),
     personalized: document.getElementById("personalizedView"),
+    split: document.getElementById("splitView"),
     simulation: document.getElementById("simulationView"),
     howToUse: document.getElementById("howToUseView")
   },
@@ -154,10 +157,19 @@ const els = {
   skewSelect: document.getElementById("skewSelect"),
   localEpochs: document.getElementById("localEpochs"),
   dropoutRate: document.getElementById("dropoutRate"),
+  testSplit: document.getElementById("testSplit"),
+  addValidation: document.getElementById("addValidation"),
+  validationSplit: document.getElementById("validationSplit"),
   learningRate: document.getElementById("learningRate"),
   dlDropout: document.getElementById("dlDropout"),
   dlLockNote: document.getElementById("dlLockNote"),
   runSimulationButton: document.getElementById("runSimulationButton"),
+  splitBackConfig: document.getElementById("splitBackConfig"),
+  splitRunSimulation: document.getElementById("splitRunSimulation"),
+  splitSummaryCanvas: document.getElementById("splitSummaryCanvas"),
+  splitCanvas: document.getElementById("splitCanvas"),
+  splitSummaryText: document.getElementById("splitSummaryText"),
+  splitExplanation: document.getElementById("splitExplanation"),
   personalizedDatasetSelect: document.getElementById("personalizedDatasetSelect"),
   personalizationMethod: document.getElementById("personalizationMethod"),
   personalizedClients: document.getElementById("personalizedClients"),
@@ -173,13 +185,17 @@ const els = {
   networkCanvas: document.getElementById("networkCanvas"),
   roundLabel: document.getElementById("roundLabel"),
   phaseLabel: document.getElementById("phaseLabel"),
+  nodeDetails: document.getElementById("nodeDetails"),
   primaryMetricLabel: document.getElementById("primaryMetricLabel"),
   primaryMetric: document.getElementById("primaryMetric"),
   lossMetricLabel: document.getElementById("lossMetricLabel"),
   lossMetric: document.getElementById("lossMetric"),
   commMetric: document.getElementById("commMetric"),
   stabilityMetric: document.getElementById("stabilityMetric"),
-  metricChart: document.getElementById("metricChart"),
+  qualityChartTitle: document.getElementById("qualityChartTitle"),
+  qualityChart: document.getElementById("qualityChart"),
+  lossChartTitle: document.getElementById("lossChartTitle"),
+  lossChart: document.getElementById("lossChart"),
   clientDistributions: document.getElementById("clientDistributions"),
   evaluationTable: document.getElementById("evaluationTable"),
   matrixTitle: document.getElementById("matrixTitle"),
@@ -232,12 +248,21 @@ function wireEvents() {
     updateDeepLearningLocks();
   });
   els.modelSelect.addEventListener("change", updateDeepLearningLocks);
+  els.addValidation.addEventListener("change", () => {
+    els.validationSplit.disabled = !els.addValidation.checked;
+    if (!els.addValidation.checked) els.validationSplit.value = "0";
+    if (els.addValidation.checked && Number(els.validationSplit.value) === 0) els.validationSplit.value = "0.15";
+  });
   els.selectAllFeatures.addEventListener("click", () => {
     document.querySelectorAll("#featureList input").forEach((input) => {
       input.checked = true;
     });
   });
   els.runSimulationButton.addEventListener("click", () => startGeneralSimulation());
+  els.splitBackConfig.addEventListener("click", () => showView("config"));
+  els.splitRunSimulation.addEventListener("click", () => {
+    if (pendingConfig) startSimulation(pendingConfig);
+  });
   els.runPersonalizedButton.addEventListener("click", () => startPersonalizedSimulation());
   els.backToConfigButton.addEventListener("click", () => {
     confirmIfRunning(
@@ -265,6 +290,7 @@ function wireEvents() {
     closeConfirm();
     if (action) action();
   });
+  els.networkCanvas.addEventListener("click", handleNetworkClick);
 }
 
 function requestHome() {
@@ -386,10 +412,112 @@ function selectedFeatures(dataset) {
   return checked.length ? checked : dataset.features;
 }
 
+function renderSplitPreview(config) {
+  const distributions = buildFallbackDistributions(config);
+  drawSplitSummary(config);
+  drawSplitCanvas(config, distributions);
+  const trainRatio = 1 - config.test_size - config.validation_size;
+  els.splitSummaryText.textContent = `The dataset is split into ${(trainRatio * 100).toFixed(0)}% train, ${(config.validation_size * 100).toFixed(0)}% validation, and ${(config.test_size * 100).toFixed(0)}% test. Only the training partition is distributed to FL clients; validation and test stay centralized for fair evaluation.`;
+  els.splitExplanation.textContent = splitExplanation(config);
+}
+
+function splitExplanation(config) {
+  if (config.skew === "IID") {
+    return "IID split: every client receives approximately similar class proportions, so local updates are more aligned and convergence is usually smoother.";
+  }
+  if (config.skew.includes("Label")) {
+    return "Label-skew non-IID split: each client mostly sees a few labels. This is realistic for hospitals, phones, or sensors, but it can make local updates conflict.";
+  }
+  if (config.skew.includes("Quantity")) {
+    return "Quantity-skew non-IID split: clients receive different sample counts. Large clients dominate aggregation unless weighted aggregation is used carefully.";
+  }
+  if (config.skew.includes("Strong")) {
+    return "Strong non-IID split: clients have visibly different distributions. This is harder for FedAvg and often needs FedProx, robust aggregation, or personalization.";
+  }
+  return "Mild non-IID split: clients are not identical, but every client still keeps some diversity. This is a useful middle ground for experiments.";
+}
+
+function drawSplitSummary(config) {
+  const canvas = els.splitSummaryCanvas;
+  const ctx = prepareCanvas(canvas);
+  const width = canvas.clientWidth || canvas.width;
+  const height = canvas.clientHeight || canvas.height;
+  clearCanvas(ctx, width, height);
+  const train = Math.max(0, 1 - config.test_size - config.validation_size);
+  const parts = [
+    ["Train", train, css("--success")],
+    ["Validation", config.validation_size, css("--warning")],
+    ["Test", config.test_size, css("--danger")]
+  ].filter((part) => part[1] > 0);
+  let x = 42;
+  const y = 94;
+  const barWidth = width - 84;
+  parts.forEach(([label, ratio, color]) => {
+    const w = barWidth * ratio;
+    ctx.fillStyle = color;
+    roundedRect(ctx, x, y, w, 44, 8);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "900 15px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText(`${label} ${(ratio * 100).toFixed(0)}%`, x + w / 2, y + 28);
+    x += w;
+  });
+  ctx.textAlign = "left";
+  ctx.fillStyle = css("--text");
+  ctx.font = "900 18px system-ui";
+  ctx.fillText(`${config.dataset.name}: ${config.dataset.samples.toLocaleString()} samples`, 42, 44);
+  ctx.fillStyle = css("--muted");
+  ctx.font = "700 13px system-ui";
+  ctx.fillText(`Training data will be partitioned across ${config.clients} clients using ${config.skew}.`, 42, 170);
+}
+
+function drawSplitCanvas(config, distributions) {
+  const canvas = els.splitCanvas;
+  const ctx = prepareCanvas(canvas);
+  const width = canvas.clientWidth || canvas.width;
+  const height = canvas.clientHeight || canvas.height;
+  clearCanvas(ctx, width, height);
+  const left = 118;
+  const top = 52;
+  const rowHeight = Math.max(28, Math.min(42, (height - 92) / Math.max(1, distributions.length)));
+  const barWidth = width - left - 42;
+  ctx.fillStyle = css("--text");
+  ctx.font = "900 17px system-ui";
+  ctx.fillText("Client training partitions", 26, 28);
+  distributions.forEach((row, rowIndex) => {
+    const y = top + rowIndex * rowHeight;
+    ctx.fillStyle = css("--muted");
+    ctx.font = "800 12px system-ui";
+    ctx.fillText(row.name, 26, y + 20);
+    let x = left;
+    row.values.forEach((value, index) => {
+      const w = Math.max(2, value * barWidth);
+      ctx.fillStyle = palette[index % palette.length];
+      ctx.fillRect(x, y, w, rowHeight - 8);
+      x += w;
+    });
+    ctx.fillStyle = css("--muted");
+    ctx.fillText(`${row.samples} samples`, width - 98, y + 20);
+  });
+  const labels = distributions[0]?.classes || [];
+  let legendX = left;
+  labels.slice(0, 8).forEach((label, index) => {
+    ctx.fillStyle = palette[index % palette.length];
+    ctx.fillRect(legendX, height - 28, 12, 12);
+    ctx.fillStyle = css("--muted");
+    ctx.font = "700 11px system-ui";
+    ctx.fillText(String(label).slice(0, 12), legendX + 16, height - 18);
+    legendX += 88;
+  });
+}
+
 async function startGeneralSimulation() {
   currentMode = "general";
   const dataset = getDataset();
   const model = getSelectedModel();
+  const testSize = clamp(Number(els.testSplit.value), 0.1, 0.5);
+  const validationSize = els.addValidation.checked ? clamp(Number(els.validationSplit.value), 0.05, 0.3) : 0;
   const config = {
     mode: "general",
     dataset,
@@ -402,12 +530,16 @@ async function startGeneralSimulation() {
     local_epochs: clamp(Number(els.localEpochs.value), 1, 10),
     client_fraction: clamp(Number(els.clientFraction.value), 0.1, 1),
     dropout: clamp(Number(els.dropoutRate.value), 0, 0.9),
+    test_size: testSize,
+    validation_size: validationSize,
     skew: els.skewSelect.value,
     aggregation: els.aggregationSelect.value,
     learning_rate: Number(els.learningRate.value),
     dl_dropout: Number(els.dlDropout.value)
   };
-  await startSimulation(config);
+  pendingConfig = config;
+  renderSplitPreview(config);
+  showView("split");
 }
 
 async function startPersonalizedSimulation() {
@@ -425,6 +557,8 @@ async function startPersonalizedSimulation() {
     local_epochs: clamp(Number(els.adaptationEpochs.value), 1, 10),
     client_fraction: 1,
     dropout: 0.05,
+    test_size: 0.25,
+    validation_size: 0.15,
     skew: "Strong non-IID",
     aggregation: "Weighted FedAvg",
     personalization_method: els.personalizationMethod.value,
@@ -486,6 +620,8 @@ async function requestBackendSimulation(config) {
       local_epochs: config.local_epochs,
       client_fraction: config.client_fraction,
       dropout: config.dropout,
+      test_size: config.test_size,
+      validation_size: config.validation_size,
       skew: config.skew,
       aggregation: config.aggregation
     })
@@ -541,6 +677,10 @@ function renderLiveState(round) {
   const { config, result } = activeSimulation;
   const curve = result.curve.slice(0, round + 1);
   const loss = result.loss.slice(0, round + 1);
+  const trainCurve = (result.trainCurve?.length ? result.trainCurve : deriveTrainCurve(result.curve, result.classification)).slice(0, round + 1);
+  const trainLoss = (result.trainLoss?.length ? result.trainLoss : deriveTrainLoss(result.loss)).slice(0, round + 1);
+  const validationCurve = (result.validationCurve || []).slice(0, round + 1);
+  const validationLoss = (result.validationLoss || []).slice(0, round + 1);
   activeSimulation.displayedCurve = curve;
   activeSimulation.displayedLoss = loss;
 
@@ -560,7 +700,8 @@ function renderLiveState(round) {
   els.lossMetric.textContent = finalLoss.toFixed(3);
   els.commMetric.textContent = formatMb(result.communication || 0);
   els.stabilityMetric.textContent = Number(result.stability || 0).toFixed(2);
-  renderMetricChart(curve, loss, classification);
+  renderQualityChart(trainCurve, curve, validationCurve, classification);
+  renderLossChart(trainLoss, loss, validationLoss, classification);
   renderDistributions(result.distributions || []);
   renderEvaluation(config, result);
   renderMatrix(config, result);
@@ -571,6 +712,10 @@ function makeFallbackResult(config) {
   const rounds = config.rounds;
   const curve = [];
   const loss = [];
+  const trainCurve = [];
+  const trainLoss = [];
+  const validationCurve = [];
+  const validationLoss = [];
   const nonIidPenalty = config.skew === "IID" ? 0.02 : config.skew.includes("Strong") ? 0.12 : 0.07;
   const target = classification ? 0.88 - nonIidPenalty + Math.log2(config.clients) * 0.015 : 0.42 + nonIidPenalty;
   for (let round = 0; round <= rounds; round += 1) {
@@ -579,16 +724,32 @@ function makeFallbackResult(config) {
       const value = clamp(0.28 + (target - 0.28) * progress + Math.sin(round * 1.3) * 0.012, 0.05, 0.98);
       curve.push(value);
       loss.push(clamp(1.55 - value * 1.25, 0.05, 2));
+      trainCurve.push(clamp(value + 0.035 + progress * 0.03, 0, 0.995));
+      trainLoss.push(clamp(1.45 - trainCurve[trainCurve.length - 1] * 1.25, 0.04, 2));
+      if (config.validation_size > 0) {
+        validationCurve.push(clamp(value - 0.012, 0, 0.995));
+        validationLoss.push(clamp(loss[loss.length - 1] + 0.03, 0.04, 2));
+      }
     } else {
       const value = clamp(1.25 - (1.25 - target) * progress + Math.sin(round) * 0.015, 0.05, 1.5);
       curve.push(value);
       loss.push(value * value);
+      trainCurve.push(clamp(value * 0.92, 0.03, 1.5));
+      trainLoss.push(trainCurve[trainCurve.length - 1] ** 2);
+      if (config.validation_size > 0) {
+        validationCurve.push(clamp(value * 1.04, 0.03, 1.5));
+        validationLoss.push(validationCurve[validationCurve.length - 1] ** 2);
+      }
     }
   }
   return {
     classification,
     curve,
+    trainCurve,
+    validationCurve,
     loss,
+    trainLoss,
+    validationLoss,
     communication: estimateCommunication(config),
     stability: clamp(0.96 - nonIidPenalty - config.dropout * 0.2, 0.1, 0.99),
     distributions: buildFallbackDistributions(config),
@@ -597,6 +758,11 @@ function makeFallbackResult(config) {
     confusionMatrix: classification ? fallbackConfusion(config, curve[curve.length - 1]) : null,
     classNames: config.dataset.classes,
     residualRows: classification ? null : [["Small residual", 33], ["Medium residual", 31], ["Large residual", 22]],
+    splitInfo: {
+      train: Math.round(config.dataset.samples * (1 - config.test_size - config.validation_size)),
+      validation: Math.round(config.dataset.samples * config.validation_size),
+      test: Math.round(config.dataset.samples * config.test_size)
+    },
     evaluationRows: []
   };
 }
@@ -639,55 +805,111 @@ function fallbackConfusion(config, accuracy) {
   return matrix;
 }
 
-function renderMetricChart(curve, loss, classification) {
-  const canvas = els.metricChart;
-  const ctx = canvas.getContext("2d");
-  const width = canvas.width;
-  const height = canvas.height;
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = css("--surface-soft");
-  ctx.fillRect(0, 0, width, height);
-  drawGrid(ctx, width, height);
-  if (curve.length) {
-    const curveMax = classification ? 1 : Math.max(...curve, 1);
-    drawLine(ctx, curve, classification ? css("--success") : css("--accent"), 0, curveMax);
-    drawLine(ctx, loss, css("--danger"), 0, Math.max(...loss, 1));
-  }
-  ctx.fillStyle = css("--text");
-  ctx.font = "700 15px system-ui";
-  ctx.fillText(classification ? "Balanced accuracy (green) and cross entropy (red)" : "RMSE (blue) and MSE loss (red)", 18, 28);
+function renderQualityChart(train, test, validation, classification) {
+  els.qualityChartTitle.textContent = classification ? "Balanced Accuracy" : "RMSE";
+  const max = classification ? 1 : Math.max(...train, ...test, ...validation, 1);
+  const min = 0;
+  renderMultiLineChart(els.qualityChart, {
+    title: classification ? "Balanced accuracy over rounds" : "RMSE over rounds",
+    yLabel: classification ? "Balanced accuracy" : "RMSE",
+    min,
+    max,
+    series: [
+      { label: "Train", values: train, color: css("--success") },
+      { label: "Test", values: test, color: css("--accent") },
+      ...(validation.length ? [{ label: "Validation", values: validation, color: css("--warning") }] : [])
+    ]
+  });
 }
 
-function drawGrid(ctx, width, height) {
+function renderLossChart(train, test, validation, classification) {
+  els.lossChartTitle.textContent = classification ? "Cross Entropy Loss" : "MSE Loss";
+  renderMultiLineChart(els.lossChart, {
+    title: classification ? "Cross entropy over rounds" : "MSE loss over rounds",
+    yLabel: classification ? "Cross entropy" : "MSE loss",
+    min: 0,
+    max: Math.max(...train, ...test, ...validation, 1),
+    series: [
+      { label: "Train", values: train, color: css("--success") },
+      { label: "Test", values: test, color: css("--danger") },
+      ...(validation.length ? [{ label: "Validation", values: validation, color: css("--warning") }] : [])
+    ]
+  });
+}
+
+function renderMultiLineChart(canvas, options) {
+  const ctx = prepareCanvas(canvas);
+  const width = canvas.clientWidth || canvas.width;
+  const height = canvas.clientHeight || canvas.height;
+  clearCanvas(ctx, width, height);
+  const plot = { left: 76, top: 52, right: width - 28, bottom: height - 58 };
+  drawGrid(ctx, width, height, plot, options.min, options.max, options.yLabel);
+  options.series.forEach((series) => {
+    drawLine(ctx, series.values, series.color, options.min, options.max, plot);
+  });
+  ctx.fillStyle = css("--text");
+  ctx.font = "900 17px system-ui";
+  ctx.fillText(options.title, plot.left, 28);
+  let legendX = plot.left + 330;
+  options.series.forEach((series) => {
+    ctx.fillStyle = series.color;
+    ctx.fillRect(legendX, 17, 16, 4);
+    ctx.fillStyle = css("--muted");
+    ctx.font = "800 12px system-ui";
+    ctx.fillText(series.label, legendX + 22, 22);
+    legendX += 92;
+  });
+}
+
+function drawGrid(ctx, width, height, plot, minValue = 0, maxValue = 1, yLabel = "Metric") {
   ctx.strokeStyle = css("--line");
   ctx.lineWidth = 1;
-  for (let i = 1; i < 5; i += 1) {
-    const y = (height / 5) * i;
+  ctx.fillStyle = css("--muted");
+  ctx.font = "700 11px system-ui";
+  for (let i = 0; i <= 5; i += 1) {
+    const y = plot.bottom - ((plot.bottom - plot.top) * i) / 5;
+    const value = minValue + ((maxValue - minValue) * i) / 5;
     ctx.beginPath();
-    ctx.moveTo(42, y);
-    ctx.lineTo(width - 20, y);
+    ctx.moveTo(plot.left, y);
+    ctx.lineTo(plot.right, y);
     ctx.stroke();
+    ctx.fillText(value.toFixed(maxValue > 10 ? 0 : 2), 18, y + 4);
   }
+  ctx.strokeStyle = css("--muted");
+  ctx.beginPath();
+  ctx.moveTo(plot.left, plot.top);
+  ctx.lineTo(plot.left, plot.bottom);
+  ctx.lineTo(plot.right, plot.bottom);
+  ctx.stroke();
+  ctx.fillText("Round", plot.right - 38, plot.bottom + 34);
+  ctx.save();
+  ctx.translate(18, plot.top + 92);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
 }
 
-function drawLine(ctx, values, color, minValue, maxValue) {
-  const width = ctx.canvas.width;
-  const height = ctx.canvas.height;
-  const left = 42;
-  const right = width - 20;
-  const top = 48;
-  const bottom = height - 26;
+function drawLine(ctx, values, color, minValue, maxValue, plot) {
   const range = Math.max(0.001, maxValue - minValue);
   ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   ctx.beginPath();
   values.forEach((value, index) => {
-    const x = left + (right - left) * (index / Math.max(1, values.length - 1));
-    const y = bottom - (bottom - top) * ((value - minValue) / range);
+    const x = plot.left + (plot.right - plot.left) * (index / Math.max(1, values.length - 1));
+    const y = plot.bottom - (plot.bottom - plot.top) * ((value - minValue) / range);
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
+  if (values.length) {
+    const last = values[values.length - 1];
+    const x = plot.left + (plot.right - plot.left) * ((values.length - 1) / Math.max(1, values.length - 1));
+    const y = plot.bottom - (plot.bottom - plot.top) * ((last - minValue) / range);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function renderDistributions(distributions) {
@@ -724,6 +946,9 @@ function renderEvaluation(config, result, note = "") {
       rows.push(["MSE loss", result.finalLoss.toFixed(4), "Squared prediction error."]);
     }
   }
+  if (result.splitInfo) {
+    rows.push(["Split", `${result.splitInfo.train} train / ${result.splitInfo.validation || 0} validation / ${result.splitInfo.test} test`, "Only train data is partitioned across FL clients; validation/test are used for evaluation."]);
+  }
   rows.push(["Aggregation", config.aggregation, "Server-side method for combining client information."]);
   rows.push(["Communication", formatMb(result.communication || 0), "Approximate total server-client transfer."]);
   if (note) rows.push(["Runtime note", note, "The interface stays usable even when the backend is not available."]);
@@ -731,12 +956,10 @@ function renderEvaluation(config, result, note = "") {
 }
 
 function renderMatrix(config, result) {
-  const ctx = els.confusionCanvas.getContext("2d");
-  const width = els.confusionCanvas.width;
-  const height = els.confusionCanvas.height;
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = css("--surface-soft");
-  ctx.fillRect(0, 0, width, height);
+  const ctx = prepareCanvas(els.confusionCanvas);
+  const width = els.confusionCanvas.clientWidth || els.confusionCanvas.width;
+  const height = els.confusionCanvas.clientHeight || els.confusionCanvas.height;
+  clearCanvas(ctx, width, height);
 
   if (!result.classification) {
     els.matrixTitle.textContent = "Residual Plot";
@@ -808,17 +1031,17 @@ function drawLoop() {
 
 function drawHero() {
   const canvas = els.heroCanvas;
-  const ctx = canvas.getContext("2d");
-  const width = canvas.width;
-  const height = canvas.height;
+  const ctx = prepareCanvas(canvas);
+  const width = canvas.clientWidth || canvas.width;
+  const height = canvas.clientHeight || canvas.height;
   drawNetworkScene(ctx, width, height, 8, "FL Simulator", false);
 }
 
 function drawNetwork() {
   const canvas = els.networkCanvas;
-  const ctx = canvas.getContext("2d");
-  const width = canvas.width;
-  const height = canvas.height;
+  const ctx = prepareCanvas(canvas);
+  const width = canvas.clientWidth || canvas.width;
+  const height = canvas.clientHeight || canvas.height;
   const clients = activeSimulation?.config?.clients || 5;
   const personalized = activeSimulation?.config?.mode === "personalized";
   drawNetworkScene(ctx, width, height, Math.min(clients, 18), personalized ? "Shared core" : "Server", personalized);
@@ -834,10 +1057,12 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
 
   const center = { x: width / 2, y: height / 2 };
   const radius = Math.min(width, height) * 0.34;
-  const phaseIndex = Math.floor(animationClock * 3) % 4;
+  const phaseIndex = activeView === "simulation" && activeSimulation ? activeSimulation.round % 4 : Math.floor(animationClock * 3) % 4;
+  lastNodeHitboxes = activeView === "simulation" ? [{ type: "server", index: 0, x: center.x, y: center.y, r: 58 }] : [];
   for (let i = 0; i < clientCount; i += 1) {
     const angle = (Math.PI * 2 * i) / clientCount - Math.PI / 2;
     const client = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
+    if (activeView === "simulation") lastNodeHitboxes.push({ type: "client", index: i + 1, x: client.x, y: client.y, r: 30 });
     ctx.strokeStyle = "rgba(148, 163, 184, 0.28)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -881,6 +1106,31 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.fillText(personalized ? "+ local heads" : "global model", center.x, center.y + 15);
 }
 
+function handleNetworkClick(event) {
+  if (activeView !== "simulation" || !activeSimulation) return;
+  const rect = els.networkCanvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  const hit = lastNodeHitboxes.find((node) => Math.hypot(node.x - x, node.y - y) <= node.r);
+  if (!hit) return;
+  const config = activeSimulation.config;
+  if (hit.type === "server") {
+    els.nodeDetails.innerHTML = `
+      <small>Server internals</small>
+      <strong>${config.aggregation}</strong>
+      <p>Maintains the global model, receives client updates, aggregates them, and broadcasts the next global model. Raw client data is not stored here.</p>
+    `;
+    return;
+  }
+  const distribution = activeSimulation.result.distributions?.[hit.index - 1];
+  const samples = distribution?.samples ?? Math.round(config.dataset.samples / config.clients);
+  els.nodeDetails.innerHTML = `
+    <small>Client ${hit.index}</small>
+    <strong>${samples} local samples</strong>
+    <p>Trains locally for ${config.local_epochs} epoch(s), keeps raw data private, then sends only model information to the server.</p>
+  `;
+}
+
 function roundedRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -894,6 +1144,34 @@ function roundedRect(ctx, x, y, w, h, r) {
 function formatMb(value) {
   if (value >= 1024) return `${(value / 1024).toFixed(2)} GB`;
   return `${Number(value).toFixed(0)} MB`;
+}
+
+function prepareCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const cssWidth = Math.max(1, Math.round(rect.width || canvas.width));
+  const cssHeight = Math.max(1, Math.round(rect.height || canvas.height));
+  if (canvas.width !== Math.round(cssWidth * dpr) || canvas.height !== Math.round(cssHeight * dpr)) {
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+function clearCanvas(ctx, width, height) {
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = css("--surface-soft");
+  ctx.fillRect(0, 0, width, height);
+}
+
+function deriveTrainCurve(testCurve, classification) {
+  return testCurve.map((value, index) => classification ? clamp(value + 0.03 + index * 0.002, 0, 0.995) : clamp(value * 0.94, 0.01, value));
+}
+
+function deriveTrainLoss(testLoss) {
+  return testLoss.map((value) => Math.max(0.001, value * 0.9));
 }
 
 function clamp(value, min, max) {
