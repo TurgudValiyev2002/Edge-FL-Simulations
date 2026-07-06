@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Edge Federated Learning Simulator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">FL</div>
+        <div>
+          <h1>Edge FL Simulator</h1>
+          <p>Realistic federated learning lab</p>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label for="datasetSelect">Dataset</label>
+        <select id="datasetSelect"></select>
+      </div>
+
+      <div id="customDatasetPanel" class="custom-panel hidden">
+        <div class="split">
+          <label>
+            Dataset name
+            <input id="customName" type="text" value="My dataset">
+          </label>
+          <label>
+            Task
+            <select id="customTask">
+              <option value="classification">Classification</option>
+              <option value="regression">Regression</option>
+              <option value="image-classification">Image classification</option>
+              <option value="time-series-classification">Time series classification</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          Columns, comma separated
+          <textarea id="customColumns" rows="3">age,blood_pressure,cholesterol,glucose,target</textarea>
+        </label>
+      </div>
+
+      <div class="control-group">
+        <label for="targetSelect">Target variable</label>
+        <select id="targetSelect"></select>
+      </div>
+
+      <div class="control-group">
+        <div class="row-label">
+          <span>Independent variables</span>
+          <button id="selectAllFeatures" class="ghost-button" type="button">All</button>
+        </div>
+        <div id="featureList" class="check-list"></div>
+      </div>
+
+      <div class="control-group">
+        <label for="modelSelect">Model</label>
+        <select id="modelSelect"></select>
+      </div>
+
+      <div class="split">
+        <label>
+          Clients
+          <input id="clientCount" type="number" min="2" max="50" step="1" value="5">
+        </label>
+        <label>
+          Rounds
+          <input id="roundCount" type="number" min="3" max="100" step="1" value="25">
+        </label>
+      </div>
+
+      <div class="split">
+        <label>
+          Local epochs
+          <input id="localEpochs" type="number" min="1" max="10" step="1" value="2">
+        </label>
+        <label>
+          Client fraction
+          <input id="clientFraction" type="number" min="0.1" max="1" step="0.1" value="0.8">
+        </label>
+      </div>
+
+      <button id="runButton" class="primary-button" type="button">Run simulation</button>
+      <button id="themeToggle" class="secondary-button" type="button">Switch theme</button>
+    </aside>
+
+    <main class="workspace">
+      <section class="top-band">
+        <div>
+          <p class="eyebrow">Federated learning workflow</p>
+          <h2 id="datasetTitle">MNIST digit classification</h2>
+          <p id="datasetSummary" class="summary"></p>
+        </div>
+        <div class="status-strip">
+          <div><span id="taskBadge">Classification</span><small>Task</small></div>
+          <div><span id="privacyBadge">Raw data stays local</span><small>FL rule</small></div>
+        </div>
+      </section>
+
+      <section class="simulation-band">
+        <div class="scene-wrap">
+          <canvas id="networkCanvas" width="920" height="520" aria-label="Federated learning network animation"></canvas>
+          <div class="scene-caption">
+            <span id="roundLabel">Round 0</span>
+            <span id="phaseLabel">Server initializes a global model</span>
+          </div>
+        </div>
+        <div class="metric-panel">
+          <div class="metric-card">
+            <small id="primaryMetricLabel">Balanced accuracy</small>
+            <strong id="primaryMetric">0.00</strong>
+          </div>
+          <div class="metric-card">
+            <small id="lossMetricLabel">Cross entropy</small>
+            <strong id="lossMetric">0.00</strong>
+          </div>
+          <div class="metric-card">
+            <small>Communication</small>
+            <strong id="commMetric">0 MB</strong>
+          </div>
+          <div class="metric-card">
+            <small>Stability</small>
+            <strong id="stabilityMetric">0.00</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="scenario-tabs" id="scenarioTabs"></section>
+
+      <section class="content-grid">
+        <div class="wide-panel">
+          <div class="panel-header">
+            <div>
+              <h3 id="scenarioTitle">Basic FL workflow</h3>
+              <p id="scenarioText"></p>
+            </div>
+          </div>
+          <div id="scenarioControls" class="scenario-controls"></div>
+          <div class="chart-wrap">
+            <canvas id="metricChart" width="900" height="310" aria-label="Training metric chart"></canvas>
+          </div>
+        </div>
+
+        <div class="side-panel">
+          <h3>Client data distributions</h3>
+          <div id="clientDistributions" class="distribution-list"></div>
+        </div>
+
+        <div class="wide-panel">
+          <h3>Evaluation report</h3>
+          <div id="evaluationTable" class="table-wrap"></div>
+        </div>
+
+        <div class="side-panel">
+          <h3 id="matrixTitle">Confusion matrix</h3>
+          <div id="matrixBox" class="matrix-box"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
