@@ -124,6 +124,8 @@ let confirmAction = null;
 let pendingConfig = null;
 let lastNodeHitboxes = [];
 let datasetReturnView = "home";
+let pendingCsvText = "";
+let pendingCsvName = "";
 
 const els = {
   views: {
@@ -166,6 +168,11 @@ const els = {
   learningRate: document.getElementById("learningRate"),
   dlDropout: document.getElementById("dlDropout"),
   dlLockNote: document.getElementById("dlLockNote"),
+  customCsvFile: document.getElementById("customCsvFile"),
+  customTask: document.getElementById("customTask"),
+  customTarget: document.getElementById("customTarget"),
+  uploadCsvButton: document.getElementById("uploadCsvButton"),
+  customUploadStatus: document.getElementById("customUploadStatus"),
   runSimulationButton: document.getElementById("runSimulationButton"),
   configInspectDataset: document.getElementById("configInspectDataset"),
   splitBackConfigBottom: document.getElementById("splitBackConfigBottom"),
@@ -182,6 +189,7 @@ const els = {
   sharedStrength: document.getElementById("sharedStrength"),
   adaptationEpochs: document.getElementById("adaptationEpochs"),
   runPersonalizedButton: document.getElementById("runPersonalizedButton"),
+  startLiveOverlay: document.getElementById("startLiveOverlay"),
   startLiveButton: document.getElementById("startLiveButton"),
   backToConfigButton: document.getElementById("backToConfigButton"),
   stopSimulationButton: document.getElementById("stopSimulationButton"),
@@ -369,7 +377,10 @@ function pseudoValue(dataset, rowIndex, featureIndex) {
 function wireEvents() {
   els.brandHomeButton.addEventListener("click", () => requestHome());
   els.homeNav.addEventListener("click", () => requestHome());
-  els.datasetsNav.addEventListener("click", () => requestNavigation("datasets"));
+  els.datasetsNav.addEventListener("click", () => {
+    datasetReturnView = "home";
+    requestNavigation("datasets");
+  });
   els.personalizedNav.addEventListener("click", () => requestNavigation("personalized"));
   els.howToUseNav.addEventListener("click", () => requestNavigation("howToUse"));
   els.themeToggle.addEventListener("click", () => document.body.classList.toggle("dark"));
@@ -389,6 +400,8 @@ function wireEvents() {
     if (!els.addValidation.checked) els.validationSplit.value = "0";
     if (els.addValidation.checked && Number(els.validationSplit.value) === 0) els.validationSplit.value = "0.15";
   });
+  els.customCsvFile.addEventListener("change", handleCsvFileSelected);
+  els.uploadCsvButton.addEventListener("click", uploadCustomCsv);
   els.selectAllFeatures.addEventListener("click", () => {
     document.querySelectorAll("#featureList input").forEach((input) => {
       input.checked = true;
@@ -444,6 +457,85 @@ function wireEvents() {
   els.datasetBrowserSelect.addEventListener("change", renderDatasetInspection);
 }
 
+async function handleCsvFileSelected() {
+  const file = els.customCsvFile.files?.[0];
+  pendingCsvText = "";
+  pendingCsvName = "";
+  els.customTarget.innerHTML = "";
+  els.uploadCsvButton.disabled = true;
+  if (!file) {
+    els.customUploadStatus.textContent = "Choose a CSV, then select the target column.";
+    return;
+  }
+  pendingCsvName = file.name;
+  pendingCsvText = await file.text();
+  const headers = parseCsvHeaders(pendingCsvText);
+  if (headers.length < 2) {
+    els.customUploadStatus.textContent = "This CSV needs at least one feature column and one target column.";
+    return;
+  }
+  headers.forEach((header) => {
+    const option = document.createElement("option");
+    option.value = header;
+    option.textContent = header;
+    els.customTarget.appendChild(option);
+  });
+  els.customTarget.value = headers[headers.length - 1];
+  els.uploadCsvButton.disabled = false;
+  els.customUploadStatus.textContent = `${file.name}: ${headers.length} columns found. Choose the target column.`;
+}
+
+function parseCsvHeaders(text) {
+  const firstLine = text.split(/\r?\n/).find((line) => line.trim());
+  if (!firstLine) return [];
+  return firstLine.split(",").map((value) => value.trim().replace(/^"|"$/g, "")).filter(Boolean);
+}
+
+async function uploadCustomCsv() {
+  if (!pendingCsvText || !els.customTarget.value) return;
+  els.uploadCsvButton.disabled = true;
+  els.customUploadStatus.textContent = "Loading CSV into the simulator...";
+  try {
+    const form = new FormData();
+    form.append("file", new Blob([pendingCsvText], { type: "text/csv" }), pendingCsvName || "custom.csv");
+    form.append("target", els.customTarget.value);
+    form.append("task", els.customTask.value);
+    const response = await fetch("/api/upload", { method: "POST", body: form });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Upload failed with ${response.status}`);
+    const dataset = normalizeUploadedDataset(payload.dataset, pendingCsvName);
+    const existingIndex = datasets.findIndex((item) => item.id === dataset.id);
+    if (existingIndex >= 0) datasets.splice(existingIndex, 1, dataset);
+    else datasets.push(dataset);
+    populateDatasets();
+    renderDatasetBrowser();
+    els.datasetSelect.value = dataset.id;
+    renderDatasetConfig();
+    renderModelOptions();
+    updateDeepLearningLocks();
+    els.customUploadStatus.textContent = `${dataset.name} is ready. Target: ${dataset.target}.`;
+  } catch (error) {
+    els.customUploadStatus.textContent = error.message || "Could not load CSV.";
+  } finally {
+    els.uploadCsvButton.disabled = false;
+  }
+}
+
+function normalizeUploadedDataset(dataset, fileName) {
+  return {
+    id: "custom_csv",
+    backendId: "custom_csv",
+    name: fileName ? `CSV: ${fileName.replace(/\.csv$/i, "")}` : dataset.name,
+    task: dataset.task,
+    target: dataset.target,
+    samples: dataset.samples,
+    classes: dataset.classes || [],
+    features: dataset.features || [],
+    featureMode: "tabular",
+    summary: dataset.summary || "User-uploaded CSV dataset."
+  };
+}
+
 function requestHome() {
   confirmIfSimulationActive(
     "Go home?",
@@ -491,6 +583,7 @@ function openDatasetInspection(returnView, datasetId) {
   els.datasetBrowserSelect.value = datasetId;
   els.datasetsBackConfig.classList.toggle("hidden", !["config", "split"].includes(returnView));
   els.datasetsBackConfig.textContent = returnView === "split" ? "Back to Split Preview" : "Back to Config";
+  els.views.datasets.classList.toggle("focused-inspection", ["config", "split"].includes(returnView));
   renderDatasetInspection();
   showView("datasets");
 }
@@ -512,6 +605,9 @@ function showView(name) {
   Object.entries(els.views).forEach(([viewName, element]) => {
     element.classList.toggle("active", viewName === name);
   });
+  if (name === "datasets" && !["config", "split"].includes(datasetReturnView)) {
+    els.views.datasets.classList.remove("focused-inspection");
+  }
 }
 
 function getDataset(select = els.datasetSelect) {
@@ -783,6 +879,7 @@ function startLivePlayback() {
   activeSimulation.finished = false;
   els.startLiveButton.disabled = true;
   els.startLiveButton.textContent = "Running...";
+  els.startLiveOverlay.classList.add("hidden");
   renderLiveState(0);
   playLiveResult();
 }
@@ -797,6 +894,7 @@ function setLoadingState(config) {
   els.stabilityMetric.textContent = "0.00";
   els.phaseLabel.textContent = "Preparing client partitions";
   els.roundLabel.textContent = "Ready";
+  els.startLiveOverlay.classList.remove("hidden");
 }
 
 async function requestBackendSimulation(config) {
@@ -1054,8 +1152,8 @@ function renderMultiLineChart(canvas, options) {
   const width = canvas.clientWidth || canvas.width;
   const height = canvas.clientHeight || canvas.height;
   clearCanvas(ctx, width, height);
-  const plot = { left: 76, top: 52, right: width - 28, bottom: height - 58 };
-  drawGrid(ctx, width, height, plot, options.min, options.max, options.yLabel);
+  const plot = { left: 78, top: 56, right: width - 92, bottom: height - 70 };
+  drawGrid(ctx, width, height, plot, options.min, options.max, options.yLabel, options.series[0]?.values?.length || 0);
   options.series.forEach((series) => {
     drawLine(ctx, series.values, series.color, options.min, options.max, plot);
     drawPointLabels(ctx, series.values, series.color, options.min, options.max, plot, options.asPercent);
@@ -1086,15 +1184,19 @@ function drawPointLabels(ctx, values, color, minValue, maxValue, plot, asPercent
     const text = asPercent ? `${(value * 100).toFixed(1)}%` : value.toFixed(value >= 10 ? 1 : 3);
     ctx.font = `${isFinal ? "900 15px" : values.length <= 2 ? "900 14px" : "800 10px"} system-ui`;
     const metrics = ctx.measureText(text);
+    const labelWidth = metrics.width + 12;
+    const labelHeight = isFinal ? 23 : 16;
+    const boxX = clamp(isFinal ? x - labelWidth - 8 : x - labelWidth / 2, plot.left + 2, plot.right - labelWidth - 2);
+    const boxY = clamp(y - (isFinal ? 30 : 22), plot.top + 4, plot.bottom - labelHeight - 4);
     ctx.fillStyle = isFinal ? color : colorWithAlpha(color, 0.14);
-    roundedRect(ctx, x + 6, y - (isFinal ? 26 : 18), metrics.width + 10, isFinal ? 22 : 16, 5);
+    roundedRect(ctx, boxX, boxY, labelWidth, labelHeight, 5);
     ctx.fill();
     ctx.fillStyle = isFinal ? "#ffffff" : color;
-    ctx.fillText(text, x + 11, y - (isFinal ? 10 : 6));
+    ctx.fillText(text, boxX + 6, boxY + (isFinal ? 16 : 12));
   });
 }
 
-function drawGrid(ctx, width, height, plot, minValue = 0, maxValue = 1, yLabel = "Metric") {
+function drawGrid(ctx, width, height, plot, minValue = 0, maxValue = 1, yLabel = "Metric", roundCount = 0) {
   ctx.strokeStyle = css("--line");
   ctx.lineWidth = 1;
   ctx.fillStyle = css("--muted");
@@ -1114,7 +1216,22 @@ function drawGrid(ctx, width, height, plot, minValue = 0, maxValue = 1, yLabel =
   ctx.lineTo(plot.left, plot.bottom);
   ctx.lineTo(plot.right, plot.bottom);
   ctx.stroke();
-  ctx.fillText("Round", plot.right - 38, plot.bottom + 34);
+  const maxRound = Math.max(0, roundCount - 1);
+  const tickEvery = maxRound <= 10 ? 1 : Math.ceil(maxRound / 8);
+  ctx.textAlign = "center";
+  for (let round = 0; round <= maxRound; round += tickEvery) {
+    const x = plot.left + (plot.right - plot.left) * (round / Math.max(1, maxRound));
+    ctx.beginPath();
+    ctx.moveTo(x, plot.bottom);
+    ctx.lineTo(x, plot.bottom + 6);
+    ctx.stroke();
+    ctx.fillText(String(round), x, plot.bottom + 22);
+  }
+  if (maxRound > 0 && maxRound % tickEvery !== 0) {
+    ctx.fillText(String(maxRound), plot.right, plot.bottom + 22);
+  }
+  ctx.textAlign = "left";
+  ctx.fillText("Round", plot.right - 38, plot.bottom + 44);
   ctx.save();
   ctx.translate(18, plot.top + 92);
   ctx.rotate(-Math.PI / 2);

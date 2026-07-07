@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 app = Flask(__name__, static_folder=str(ROOT), static_url_path="")
 CORS(app)
 
+UPLOADED_DATASET = None
+
 
 @app.get("/")
 def index():
@@ -45,12 +47,14 @@ def models():
 @app.post("/api/simulate")
 def simulate():
     payload = request.get_json(force=True)
-    result = run_federated_experiment(payload)
+    custom_dataset = UPLOADED_DATASET if payload.get("dataset_id") == "custom_csv" else None
+    result = run_federated_experiment(payload, custom_dataset=custom_dataset)
     return jsonify(result)
 
 
 @app.post("/api/upload")
 def upload():
+    global UPLOADED_DATASET
     uploaded = request.files.get("file")
     target = request.form.get("target", "")
     task = request.form.get("task", "classification")
@@ -59,6 +63,7 @@ def upload():
     text = uploaded.read().decode("utf-8-sig")
     rows = list(csv.DictReader(io.StringIO(text)))
     dataset = dataset_from_csv(rows, target=target, task=task)
+    UPLOADED_DATASET = dataset
     return jsonify(
         {
             "dataset": {

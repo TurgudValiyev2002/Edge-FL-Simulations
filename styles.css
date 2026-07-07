@@ -404,6 +404,23 @@ input:disabled {
   background: var(--ink);
 }
 
+.start-live-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.start-live-overlay .primary-button {
+  min-width: min(320px, calc(100% - 48px));
+  min-height: 58px;
+  font-size: 17px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
+  pointer-events: auto;
+}
+
 #networkCanvas {
   width: 100%;
   height: 100%;
@@ -414,10 +431,19 @@ input:disabled {
 #splitSummaryCanvas,
 #splitCanvas {
   width: 100%;
+  max-width: 100%;
   display: block;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
+}
+
+#splitSummaryCanvas {
+  height: 240px;
+}
+
+#splitCanvas {
+  height: 520px;
 }
 
 .scene-overlay {
@@ -543,10 +569,16 @@ input:disabled {
 #lossChart,
 #confusionCanvas {
   width: 100%;
+  max-width: 100%;
   display: block;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
+}
+
+#qualityChart,
+#lossChart {
+  height: 440px;
 }
 
 .checkbox-line {
@@ -569,6 +601,16 @@ input:disabled {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: 14px;
+}
+
+.custom-upload {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.custom-upload h4 {
+  margin: 0 0 12px;
 }
 
 .distribution-list {
@@ -648,6 +690,14 @@ th {
   display: grid;
   grid-template-columns: minmax(280px, 0.55fr) minmax(440px, 1.45fr);
   gap: 18px;
+}
+
+.datasets-view.focused-inspection .dataset-browser {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.datasets-view.focused-inspection .dataset-browser > .panel:first-child {
+  display: none;
 }
 
 .dataset-cards {

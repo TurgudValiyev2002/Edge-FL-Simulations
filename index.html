@@ -74,6 +74,28 @@
             <div id="tensorFeatureNotice" class="notice hidden">
               This dataset is image or sequence based, so feature selection is handled as a tensor/window representation. We do not expose funny pixel-by-pixel checkboxes here.
             </div>
+            <div class="custom-upload">
+              <h4>Use your own CSV</h4>
+              <div class="form-grid">
+                <label>
+                  CSV file
+                  <input id="customCsvFile" type="file" accept=".csv,text/csv">
+                </label>
+                <label>
+                  Task
+                  <select id="customTask">
+                    <option value="classification">Classification</option>
+                    <option value="regression">Regression</option>
+                  </select>
+                </label>
+                <label>
+                  Target column
+                  <select id="customTarget"></select>
+                </label>
+              </div>
+              <button id="uploadCsvButton" class="secondary-button full" type="button" disabled>Load CSV Dataset</button>
+              <p id="customUploadStatus" class="help-text">Choose a CSV, then select the target column.</p>
+            </div>
             <button id="configInspectDataset" class="secondary-button full" type="button">Inspect Dataset</button>
           </section>
 
@@ -240,7 +262,6 @@
             <h2 id="simulationTitle">Simulation Running</h2>
           </div>
           <div class="action-row">
-            <button id="startLiveButton" class="primary-button compact" type="button">Start Live Simulation</button>
             <button id="backToConfigButton" class="secondary-button compact" type="button">Back to Config</button>
             <button id="stopSimulationButton" class="danger-button compact" type="button">Stop Simulation</button>
           </div>
@@ -249,6 +270,9 @@
         <div class="live-layout">
           <section class="live-scene panel">
             <canvas id="networkCanvas" width="980" height="560"></canvas>
+            <div class="start-live-overlay" id="startLiveOverlay">
+              <button id="startLiveButton" class="primary-button" type="button">Start Live Simulation</button>
+            </div>
             <div class="scene-overlay">
               <span id="roundLabel">Round 0</span>
               <span id="phaseLabel">Preparing clients</span>
