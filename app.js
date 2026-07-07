@@ -1047,8 +1047,8 @@ function renderLiveState(round) {
   const classification = result.classification;
   const phases = config.mode === "personalized"
     ? ["Share backbone", "Local heads adapt", "Clients send adapted updates", "Personalized evaluation"]
-    : ["Server sends global model", "Clients train locally", "Clients send updates", "Server aggregates updates"];
-  const phase = phases[round % phases.length];
+    : ["Broadcast global weights", "Local training changes weights", "Clients upload model deltas", `${config.aggregation} creates next global model`];
+  const phase = activeSimulation.running ? phases[aggregationPhaseIndex()] : phases[Math.min(round % phases.length, phases.length - 1)];
 
   const maxRound = Math.max(0, result.curve.length - 1);
   els.roundLabel.textContent = activeSimulation.finished ? `Finished at round ${maxRound}` : `Round ${round} / ${maxRound}`;
@@ -1483,40 +1483,51 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, width, height);
 
-  const center = { x: width / 2, y: height / 2 };
-  const radius = Math.min(width, height) * 0.34;
-  const phaseIndex = activeView === "simulation" && activeSimulation ? activeSimulation.round % 4 : Math.floor(animationClock * 3) % 4;
+  const simulationActive = activeView === "simulation" && activeSimulation;
+  const panelWidth = simulationActive ? Math.min(350, Math.max(290, width * 0.32)) : 0;
+  const sceneWidth = width - panelWidth;
+  const center = { x: sceneWidth / 2, y: height / 2 + (simulationActive ? 8 : 0) };
+  const radius = Math.min(sceneWidth, height) * (simulationActive ? 0.31 : 0.34);
+  const phaseIndex = simulationActive ? aggregationPhaseIndex() : Math.floor(animationClock * 3) % 4;
   lastNodeHitboxes = activeView === "simulation" ? [{ type: "server", index: 0, x: center.x, y: center.y, r: 58 }] : [];
   const liveMotion = activeView !== "simulation" || activeSimulation?.running;
   const finished = activeView === "simulation" && activeSimulation?.finished;
+  const aggregationRows = simulationActive ? clientAggregationRows(activeSimulation.config, activeSimulation.result, activeSimulation.round, clientCount) : [];
+  const aggregation = simulationActive ? aggregateClientUpdates(aggregationRows, activeSimulation.config.aggregation) : { value: 0, selected: [], trimmed: [] };
+  if (simulationActive) drawPhaseRibbon(ctx, sceneWidth, phaseIndex, finished);
+
   const nodeW = clientCount > 30 ? 28 : clientCount > 18 ? 34 : 48;
   const nodeH = clientCount > 30 ? 22 : clientCount > 18 ? 26 : 34;
   const nodeR = Math.max(16, nodeW * 0.7);
   for (let i = 0; i < clientCount; i += 1) {
     const angle = (Math.PI * 2 * i) / clientCount - Math.PI / 2;
     const client = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
+    const row = aggregationRows[i] || { active: true, update: 0, influence: 1, trimmed: false };
     if (activeView === "simulation") lastNodeHitboxes.push({ type: "client", index: i + 1, x: client.x, y: client.y, r: nodeR });
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.28)";
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = row.active ? "rgba(148, 163, 184, 0.34)" : "rgba(148, 163, 184, 0.12)";
+    ctx.lineWidth = row.active ? 1.3 + row.influence * 3.4 : 1;
     ctx.beginPath();
     ctx.moveTo(center.x, center.y);
     ctx.lineTo(client.x, client.y);
     ctx.stroke();
 
     if (liveMotion) {
-      const direction = phaseIndex < 2 ? 1 : -1;
+      const direction = phaseIndex <= 1 ? 1 : -1;
       const t = (animationClock * 0.85 + i / clientCount) % 1;
       const px = direction === 1 ? center.x + (client.x - center.x) * t : client.x + (center.x - client.x) * t;
       const py = direction === 1 ? center.y + (client.y - center.y) * t : client.y + (center.y - client.y) * t;
-      ctx.fillStyle = phaseIndex < 2 ? "#38bdf8" : "#34d399";
-      ctx.beginPath();
-      ctx.arc(px, py, clientCount > 30 ? 3 : 4.5, 0, Math.PI * 2);
-      ctx.fill();
+      if (row.active && phaseIndex !== 1) {
+        ctx.fillStyle = phaseIndex <= 1 ? "#38bdf8" : row.trimmed ? "#fb7185" : "#34d399";
+        ctx.beginPath();
+        ctx.arc(px, py, clientCount > 30 ? 3 : 4.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
-    ctx.fillStyle = palette[i % palette.length];
+    ctx.fillStyle = row.active ? palette[i % palette.length] : "rgba(100, 116, 139, 0.72)";
     roundedRect(ctx, client.x - nodeW / 2, client.y - nodeH / 2, nodeW, nodeH, 7);
     ctx.fill();
+    if (simulationActive) drawClientUpdateGlyph(ctx, client.x, client.y, nodeW, nodeH, row, phaseIndex);
     if (personalized) {
       ctx.fillStyle = "rgba(255,255,255,0.95)";
       ctx.beginPath();
@@ -1538,7 +1549,236 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.textAlign = "center";
   ctx.fillText(centerLabel, center.x, center.y - 4);
   ctx.font = "700 11px system-ui";
-  ctx.fillText(finished ? "finished" : personalized ? "+ local heads" : "global model", center.x, center.y + 15);
+  ctx.fillText(finished ? "finished" : simulationActive ? `Delta ${signedNumber(aggregation.value)}` : personalized ? "+ local heads" : "global model", center.x, center.y + 15);
+  if (simulationActive) {
+    drawAggregationEngine(ctx, sceneWidth + 12, 18, panelWidth - 26, height - 36, activeSimulation.config, aggregationRows, aggregation, phaseIndex);
+  }
+}
+
+function aggregationPhaseIndex() {
+  if (!activeSimulation?.running) return activeSimulation?.finished ? 3 : 0;
+  return Math.floor((animationClock * 1.35) % 4);
+}
+
+function clientAggregationRows(config, result, round, clientCount) {
+  const distributions = result.distributions || [];
+  const maxVisible = Math.min(clientCount, 50);
+  const participantLimit = Math.max(1, Math.round(config.clients * config.client_fraction * (1 - config.dropout)));
+  const rows = [];
+  for (let i = 0; i < maxVisible; i += 1) {
+    const distribution = distributions[i] || {};
+    const samples = distribution.samples || Math.max(10, Math.round(config.dataset.samples / Math.max(1, config.clients)));
+    const active = ((i + round * 3) % Math.max(1, config.clients)) < participantLimit;
+    const heterogeneity = config.skew === "IID" ? 0.16 : config.skew.includes("Strong") ? 0.46 : config.skew.includes("Label") ? 0.4 : 0.28;
+    const outlierBoost = (config.skew.includes("Strong") || config.skew.includes("Label")) && i % 7 === 0 ? 0.38 : 0;
+    const direction = Math.sin((i + 1) * 1.71 + round * 0.67);
+    const update = clamp(direction * heterogeneity + outlierBoost * Math.sign(direction || 1), -0.95, 0.95);
+    rows.push({
+      id: i + 1,
+      active,
+      samples,
+      update,
+      influence: 0,
+      trimmed: false,
+      label: `C${i + 1}`
+    });
+  }
+  const activeRows = rows.filter((row) => row.active);
+  const totalSamples = activeRows.reduce((sum, row) => sum + row.samples, 0) || 1;
+  rows.forEach((row) => {
+    row.influence = row.active ? row.samples / totalSamples : 0;
+  });
+  markTrimmedRows(rows, config.aggregation);
+  return rows;
+}
+
+function markTrimmedRows(rows, method) {
+  rows.forEach((row) => { row.trimmed = false; });
+  const activeRows = rows.filter((row) => row.active).sort((a, b) => a.update - b.update);
+  if (method === "FedTrimmedMean" && activeRows.length > 3) {
+    activeRows[0].trimmed = true;
+    activeRows[activeRows.length - 1].trimmed = true;
+  }
+}
+
+function aggregateClientUpdates(rows, method) {
+  const activeRows = rows.filter((row) => row.active);
+  const selected = activeRows.filter((row) => !row.trimmed);
+  const values = selected.map((row) => row.update);
+  if (!values.length) return { value: 0, selected, trimmed: activeRows.filter((row) => row.trimmed) };
+  if (method === "FedMedian") {
+    const sorted = [...values].sort((a, b) => a - b);
+    return { value: sorted[Math.floor(sorted.length / 2)], selected, trimmed: [] };
+  }
+  if (method === "Weighted FedAvg") {
+    const total = selected.reduce((sum, row) => sum + row.samples, 0) || 1;
+    return { value: selected.reduce((sum, row) => sum + row.update * (row.samples / total), 0), selected, trimmed: [] };
+  }
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  if (method === "FedProx") return { value: mean * 0.65, selected, trimmed: [] };
+  return { value: mean, selected, trimmed: activeRows.filter((row) => row.trimmed) };
+}
+
+function drawPhaseRibbon(ctx, sceneWidth, phaseIndex, finished) {
+  const phases = ["Broadcast", "Local train", "Upload", "Aggregate"];
+  const x = 22;
+  const y = 18;
+  const stepW = Math.min(132, (sceneWidth - 54) / phases.length);
+  phases.forEach((phase, index) => {
+    ctx.fillStyle = finished ? colorWithAlpha("#34d399", 0.18) : index === phaseIndex ? colorWithAlpha("#38bdf8", 0.3) : "rgba(15, 23, 42, 0.52)";
+    roundedRect(ctx, x + index * stepW, y, stepW - 8, 34, 8);
+    ctx.fill();
+    ctx.fillStyle = index === phaseIndex ? "#e0f2fe" : "rgba(226, 232, 240, 0.78)";
+    ctx.font = "900 12px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText(phase, x + index * stepW + (stepW - 8) / 2, y + 22);
+  });
+  ctx.textAlign = "left";
+}
+
+function drawClientUpdateGlyph(ctx, x, y, nodeW, nodeH, row, phaseIndex) {
+  const arrowHeight = 24 * Math.abs(row.update);
+  const sign = row.update >= 0 ? -1 : 1;
+  const arrowX = x + nodeW / 2 + 10;
+  const arrowY = y;
+  ctx.strokeStyle = row.trimmed ? "#fb7185" : row.update >= 0 ? "#34d399" : "#fbbf24";
+  ctx.lineWidth = row.active ? 2.6 : 1.2;
+  ctx.beginPath();
+  ctx.moveTo(arrowX, arrowY);
+  ctx.lineTo(arrowX, arrowY + sign * arrowHeight);
+  ctx.stroke();
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.beginPath();
+  ctx.arc(arrowX, arrowY + sign * arrowHeight, row.active ? 3.5 : 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  if (row.trimmed && phaseIndex === 3) {
+    ctx.strokeStyle = "#fb7185";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x - nodeW / 2, y - nodeH / 2 - 5);
+    ctx.lineTo(x + nodeW / 2, y + nodeH / 2 + 5);
+    ctx.moveTo(x + nodeW / 2, y - nodeH / 2 - 5);
+    ctx.lineTo(x - nodeW / 2, y + nodeH / 2 + 5);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = colorWithAlpha("#ffffff", row.active ? 0.72 : 0.28);
+  ctx.lineWidth = 1 + row.influence * 9;
+  ctx.beginPath();
+  ctx.arc(x, y, Math.max(nodeW, nodeH) * 0.78, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+function drawAggregationEngine(ctx, x, y, w, h, config, rows, aggregation, phaseIndex) {
+  ctx.fillStyle = "rgba(2, 6, 23, 0.58)";
+  roundedRect(ctx, x, y, w, h, 12);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.28)";
+  ctx.stroke();
+
+  ctx.fillStyle = "#e2e8f0";
+  ctx.font = "900 18px system-ui";
+  ctx.fillText("Aggregation engine", x + 18, y + 34);
+  ctx.fillStyle = "#93c5fd";
+  ctx.font = "900 14px system-ui";
+  ctx.fillText(config.aggregation, x + 18, y + 58);
+  ctx.fillStyle = "rgba(226, 232, 240, 0.78)";
+  ctx.font = "700 12px system-ui";
+  wrapCanvasText(ctx, aggregationTeachingText(config.aggregation), x + 18, y + 80, w - 36, 16, 3);
+
+  const axisY = y + 168;
+  const axisX = x + 28;
+  const axisW = w - 56;
+  ctx.strokeStyle = "rgba(226, 232, 240, 0.38)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(axisX, axisY);
+  ctx.lineTo(axisX + axisW, axisY);
+  ctx.stroke();
+  ctx.fillStyle = "rgba(226, 232, 240, 0.68)";
+  ctx.font = "800 11px system-ui";
+  ctx.fillText("negative update", axisX, axisY + 22);
+  ctx.textAlign = "right";
+  ctx.fillText("positive update", axisX + axisW, axisY + 22);
+  ctx.textAlign = "left";
+
+  rows.filter((row) => row.active).slice(0, 18).forEach((row) => {
+    const dotX = axisX + ((row.update + 1) / 2) * axisW;
+    const dotY = axisY - 4 - row.influence * 70;
+    ctx.fillStyle = row.trimmed ? "#fb7185" : "#38bdf8";
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, 4 + row.influence * 24, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  const aggX = axisX + ((aggregation.value + 1) / 2) * axisW;
+  ctx.strokeStyle = "#34d399";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(aggX, axisY - 78);
+  ctx.lineTo(aggX, axisY + 10);
+  ctx.stroke();
+  ctx.fillStyle = "#34d399";
+  roundedRect(ctx, clamp(aggX - 45, axisX, axisX + axisW - 90), axisY - 108, 90, 24, 6);
+  ctx.fill();
+  ctx.fillStyle = "#052e1a";
+  ctx.font = "900 12px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText(`global ${signedNumber(aggregation.value)}`, clamp(aggX, axisX + 45, axisX + axisW - 45), axisY - 92);
+  ctx.textAlign = "left";
+
+  const statsY = y + 250;
+  drawAggregationStat(ctx, x + 18, statsY, w - 36, "Active clients", `${aggregation.selected.length}/${rows.length}`);
+  drawAggregationStat(ctx, x + 18, statsY + 50, w - 36, "Trimmed / ignored", `${rows.filter((row) => row.trimmed || !row.active).length}`);
+  drawAggregationStat(ctx, x + 18, statsY + 100, w - 36, "Server update", signedNumber(aggregation.value));
+
+  ctx.fillStyle = phaseIndex === 3 ? "rgba(52, 211, 153, 0.18)" : "rgba(56, 189, 248, 0.12)";
+  roundedRect(ctx, x + 18, h + y - 78, w - 36, 48, 8);
+  ctx.fill();
+  ctx.fillStyle = "#e2e8f0";
+  ctx.font = "900 12px system-ui";
+  ctx.fillText(phaseIndex === 3 ? "Server is combining updates now" : "Watch update dots move through the FL loop", x + 32, h + y - 49);
+}
+
+function drawAggregationStat(ctx, x, y, w, label, value) {
+  ctx.fillStyle = "rgba(15, 23, 42, 0.68)";
+  roundedRect(ctx, x, y, w, 38, 8);
+  ctx.fill();
+  ctx.fillStyle = "rgba(226, 232, 240, 0.72)";
+  ctx.font = "800 11px system-ui";
+  ctx.fillText(label, x + 12, y + 15);
+  ctx.fillStyle = "#f8fafc";
+  ctx.font = "900 15px system-ui";
+  ctx.fillText(value, x + 12, y + 31);
+}
+
+function aggregationTeachingText(method) {
+  if (method === "Weighted FedAvg") return "Bigger local datasets pull the global model more strongly.";
+  if (method === "FedAvg") return "Every active client contributes equally, even if sample counts differ.";
+  if (method === "FedProx") return "Local drift is pulled back toward the current global model.";
+  if (method === "FedMedian") return "The server chooses the middle update, reducing extreme-client influence.";
+  if (method === "FedTrimmedMean") return "The most extreme updates are removed before averaging.";
+  return "The server combines client updates into the next global model.";
+}
+
+function signedNumber(value) {
+  return `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}`;
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 4) {
+  const words = text.split(" ");
+  let line = "";
+  let lines = 0;
+  words.forEach((word) => {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      if (lines < maxLines) ctx.fillText(line, x, y + lines * lineHeight);
+      line = word;
+      lines += 1;
+    } else {
+      line = test;
+    }
+  });
+  if (line && lines < maxLines) ctx.fillText(line, x, y + lines * lineHeight);
 }
 
 function handleNetworkClick(event) {
@@ -1553,10 +1793,12 @@ function handleNetworkClick(event) {
     const round = activeSimulation.round;
     const testValue = activeSimulation.result.curve?.[round] ?? activeSimulation.result.finalMetric ?? 0;
     const trainValue = activeSimulation.result.trainCurve?.[round] ?? testValue;
+    const rows = clientAggregationRows(config, activeSimulation.result, round, config.clients);
+    const aggregation = aggregateClientUpdates(rows, config.aggregation);
     els.nodeDetails.innerHTML = `
       <small>Server internals</small>
       <strong>${config.aggregation}</strong>
-      <p>Round ${round}: collects participating client updates, applies ${config.aggregation}, then broadcasts the next global model. Train/test gap: ${formatMetric(Math.abs(trainValue - testValue), activeSimulation.result.classification)}.</p>
+      <p>Round ${round}: combines ${aggregation.selected.length} active client update(s). Current aggregated model delta is ${signedNumber(aggregation.value)}. Train/test gap: ${formatMetric(Math.abs(trainValue - testValue), activeSimulation.result.classification)}.</p>
       <p>${aggregationExplanation(config.aggregation)}</p>
     `;
     return;
@@ -1565,10 +1807,12 @@ function handleNetworkClick(event) {
   const samples = distribution?.samples ?? Math.round(config.dataset.samples / config.clients);
   const localCurve = localClientCurve(activeSimulation.result, hit.index);
   const latest = localCurve[Math.min(activeSimulation.round, localCurve.length - 1)] ?? 0;
+  const row = clientAggregationRows(config, activeSimulation.result, activeSimulation.round, config.clients)[hit.index - 1];
   els.nodeDetails.innerHTML = `
     <small>Client ${hit.index}</small>
     <strong>${samples} local samples</strong>
-    <p>Local metric now: ${formatMetric(latest, activeSimulation.result.classification)}. Trains for ${config.local_epochs} local epoch(s), keeps raw data private, then sends model information to the server.</p>
+    <p>Local metric now: ${formatMetric(latest, activeSimulation.result.classification)}. Local update delta: ${signedNumber(row?.update || 0)}. Aggregation influence: ${((row?.influence || 0) * 100).toFixed(1)}%.</p>
+    <p>${row?.active ? "This client participates in the current round." : "This client is skipped in this round because of client fraction/dropout."} ${row?.trimmed ? "Its update is marked as extreme and trimmed by the aggregation rule." : ""}</p>
     <div class="mini-history">${localCurve.map((value, index) => `<span title="Round ${index}: ${formatMetric(value, activeSimulation.result.classification)}" style="height:${Math.max(8, valueToBar(value, activeSimulation.result.classification))}px"></span>`).join("")}</div>
   `;
 }
