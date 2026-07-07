@@ -168,9 +168,6 @@ const els = {
   dlLockNote: document.getElementById("dlLockNote"),
   runSimulationButton: document.getElementById("runSimulationButton"),
   configInspectDataset: document.getElementById("configInspectDataset"),
-  splitBackConfig: document.getElementById("splitBackConfig"),
-  splitRunSimulation: document.getElementById("splitRunSimulation"),
-  splitInspectDataset: document.getElementById("splitInspectDataset"),
   splitBackConfigBottom: document.getElementById("splitBackConfigBottom"),
   splitRunSimulationBottom: document.getElementById("splitRunSimulationBottom"),
   splitInspectDatasetBottom: document.getElementById("splitInspectDatasetBottom"),
@@ -399,15 +396,8 @@ function wireEvents() {
   });
   els.runSimulationButton.addEventListener("click", () => startGeneralSimulation());
   els.configInspectDataset.addEventListener("click", () => openDatasetInspection("config", els.datasetSelect.value));
-  els.splitBackConfig.addEventListener("click", () => showView("config"));
   els.splitBackConfigBottom.addEventListener("click", () => showView("config"));
-  els.splitInspectDataset.addEventListener("click", () => {
-    openDatasetInspectionFromPending();
-  });
   els.splitInspectDatasetBottom.addEventListener("click", openDatasetInspectionFromPending);
-  els.splitRunSimulation.addEventListener("click", () => {
-    if (pendingConfig) startSimulation(pendingConfig);
-  });
   els.splitRunSimulationBottom.addEventListener("click", () => {
     if (pendingConfig) startSimulation(pendingConfig);
   });
@@ -632,26 +622,31 @@ function drawSplitSummary(config) {
     ["Test", config.test_size, css("--danger")]
   ].filter((part) => part[1] > 0);
   let x = 42;
-  const y = 94;
+  const y = 92;
   const barWidth = width - 84;
+  ctx.fillStyle = css("--text");
+  ctx.font = "900 18px system-ui";
+  ctx.fillText(`${config.dataset.name}: ${config.dataset.samples.toLocaleString()} samples`, 42, 42);
   parts.forEach(([label, ratio, color]) => {
     const w = barWidth * ratio;
     ctx.fillStyle = color;
     roundedRect(ctx, x, y, w, 44, 8);
     ctx.fill();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "900 15px system-ui";
-    ctx.textAlign = "center";
-    ctx.fillText(`${label} ${(ratio * 100).toFixed(0)}%`, x + w / 2, y + 28);
     x += w;
   });
-  ctx.textAlign = "left";
-  ctx.fillStyle = css("--text");
-  ctx.font = "900 18px system-ui";
-  ctx.fillText(`${config.dataset.name}: ${config.dataset.samples.toLocaleString()} samples`, 42, 44);
+  let legendX = 42;
+  parts.forEach(([label, ratio, color]) => {
+    ctx.fillStyle = color;
+    roundedRect(ctx, legendX, y + 64, 16, 16, 4);
+    ctx.fill();
+    ctx.fillStyle = css("--text");
+    ctx.font = "900 13px system-ui";
+    ctx.fillText(`${label}: ${(ratio * 100).toFixed(0)}%`, legendX + 24, y + 77);
+    legendX += Math.max(128, ctx.measureText(`${label}: ${(ratio * 100).toFixed(0)}%`).width + 52);
+  });
   ctx.fillStyle = css("--muted");
   ctx.font = "700 13px system-ui";
-  ctx.fillText(`Training data will be partitioned across ${config.clients} clients using ${config.skew}.`, 42, 170);
+  ctx.fillText(`Training data will be partitioned across ${config.clients} clients using ${config.skew}.`, 42, y + 112);
 }
 
 function drawSplitCanvas(config, distributions) {
