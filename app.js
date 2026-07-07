@@ -172,6 +172,7 @@ const els = {
   customTask: document.getElementById("customTask"),
   customTarget: document.getElementById("customTarget"),
   uploadCsvButton: document.getElementById("uploadCsvButton"),
+  removeCsvButton: document.getElementById("removeCsvButton"),
   customUploadStatus: document.getElementById("customUploadStatus"),
   runSimulationButton: document.getElementById("runSimulationButton"),
   configInspectDataset: document.getElementById("configInspectDataset"),
@@ -394,7 +395,21 @@ function wireEvents() {
     renderModelOptions();
     updateDeepLearningLocks();
   });
+  els.targetSelect.addEventListener("change", () => {
+    renderFeatureOptions(getDataset(), els.targetSelect.value);
+  });
   els.modelSelect.addEventListener("change", updateDeepLearningLocks);
+  els.customTask.addEventListener("change", () => {
+    if (els.datasetSelect.value === "custom_csv") {
+      const custom = datasets.find((dataset) => dataset.id === "custom_csv");
+      if (custom) {
+        custom.task = els.customTask.value;
+        custom.classes = els.customTask.value.includes("regression") ? [] : custom.classes;
+        renderModelOptions();
+        updateDeepLearningLocks();
+      }
+    }
+  });
   els.addValidation.addEventListener("change", () => {
     els.validationSplit.disabled = !els.addValidation.checked;
     if (!els.addValidation.checked) els.validationSplit.value = "0";
@@ -402,6 +417,7 @@ function wireEvents() {
   });
   els.customCsvFile.addEventListener("change", handleCsvFileSelected);
   els.uploadCsvButton.addEventListener("click", uploadCustomCsv);
+  els.removeCsvButton.addEventListener("click", removeCustomCsv);
   els.selectAllFeatures.addEventListener("click", () => {
     document.querySelectorAll("#featureList input").forEach((input) => {
       input.checked = true;
@@ -513,6 +529,7 @@ async function uploadCustomCsv() {
     renderDatasetConfig();
     renderModelOptions();
     updateDeepLearningLocks();
+    els.removeCsvButton.classList.remove("hidden");
     els.customUploadStatus.textContent = `${dataset.name} is ready. Target: ${dataset.target}.`;
   } catch (error) {
     els.customUploadStatus.textContent = error.message || "Could not load CSV.";
@@ -534,6 +551,23 @@ function normalizeUploadedDataset(dataset, fileName) {
     featureMode: "tabular",
     summary: dataset.summary || "User-uploaded CSV dataset."
   };
+}
+
+function removeCustomCsv() {
+  const index = datasets.findIndex((dataset) => dataset.id === "custom_csv");
+  if (index >= 0) datasets.splice(index, 1);
+  pendingCsvText = "";
+  pendingCsvName = "";
+  els.customCsvFile.value = "";
+  els.customTarget.innerHTML = "";
+  els.removeCsvButton.classList.add("hidden");
+  populateDatasets();
+  els.datasetSelect.value = "digits";
+  renderDatasetBrowser();
+  renderDatasetConfig();
+  renderModelOptions();
+  updateDeepLearningLocks();
+  els.customUploadStatus.textContent = "CSV dataset removed. Choose another CSV when needed.";
 }
 
 function requestHome() {
@@ -617,26 +651,34 @@ function getDataset(select = els.datasetSelect) {
 function renderDatasetConfig() {
   const dataset = getDataset();
   els.targetSelect.innerHTML = "";
-  const targetOption = document.createElement("option");
-  targetOption.value = dataset.target;
-  targetOption.textContent = dataset.target;
-  els.targetSelect.appendChild(targetOption);
+  const targetOptions = dataset.featureMode === "tensor" ? [dataset.target] : [dataset.target, ...dataset.features];
+  [...new Set(targetOptions)].forEach((target, index) => {
+    const option = document.createElement("option");
+    option.value = target;
+    option.textContent = index === 0 ? `${target} (default)` : target;
+    els.targetSelect.appendChild(option);
+  });
+  els.targetSelect.value = dataset.target;
 
   const isTensor = dataset.featureMode === "tensor";
   els.featurePanel.classList.toggle("hidden", isTensor);
   els.tensorFeatureNotice.classList.toggle("hidden", !isTensor);
+  renderFeatureOptions(dataset, els.targetSelect.value);
+}
+
+function renderFeatureOptions(dataset, targetName = dataset.target) {
   els.featureList.innerHTML = "";
-  if (!isTensor) {
-    dataset.features.forEach((feature) => {
-      const label = document.createElement("label");
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.value = feature;
-      input.checked = true;
-      label.append(input, document.createTextNode(feature));
-      els.featureList.appendChild(label);
-    });
-  }
+  if (dataset.featureMode === "tensor") return;
+  dataset.features.forEach((feature) => {
+    if (feature === targetName) return;
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = feature;
+    input.checked = true;
+    label.append(input, document.createTextNode(feature));
+    els.featureList.appendChild(label);
+  });
 }
 
 function renderModelOptions() {
@@ -718,31 +760,38 @@ function drawSplitSummary(config) {
     ["Test", config.test_size, css("--danger")]
   ].filter((part) => part[1] > 0);
   let x = 42;
-  const y = 92;
+  const y = 104;
   const barWidth = width - 84;
   ctx.fillStyle = css("--text");
-  ctx.font = "900 18px system-ui";
+  ctx.font = "900 22px system-ui";
   ctx.fillText(`${config.dataset.name}: ${config.dataset.samples.toLocaleString()} samples`, 42, 42);
   parts.forEach(([label, ratio, color]) => {
     const w = barWidth * ratio;
     ctx.fillStyle = color;
-    roundedRect(ctx, x, y, w, 44, 8);
+    roundedRect(ctx, x, y, w, 58, 10);
     ctx.fill();
+    if (w > 96) {
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "900 14px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(`${(ratio * 100).toFixed(0)}%`, x + w / 2, y + 36);
+      ctx.textAlign = "left";
+    }
     x += w;
   });
   let legendX = 42;
   parts.forEach(([label, ratio, color]) => {
     ctx.fillStyle = color;
-    roundedRect(ctx, legendX, y + 64, 16, 16, 4);
+    roundedRect(ctx, legendX, y + 78, 18, 18, 4);
     ctx.fill();
     ctx.fillStyle = css("--text");
-    ctx.font = "900 13px system-ui";
-    ctx.fillText(`${label}: ${(ratio * 100).toFixed(0)}%`, legendX + 24, y + 77);
-    legendX += Math.max(128, ctx.measureText(`${label}: ${(ratio * 100).toFixed(0)}%`).width + 52);
+    ctx.font = "900 15px system-ui";
+    ctx.fillText(`${label}: ${(ratio * 100).toFixed(0)}%`, legendX + 26, y + 93);
+    legendX += Math.max(158, ctx.measureText(`${label}: ${(ratio * 100).toFixed(0)}%`).width + 64);
   });
   ctx.fillStyle = css("--muted");
-  ctx.font = "700 13px system-ui";
-  ctx.fillText(`Training data will be partitioned across ${config.clients} clients using ${config.skew}.`, 42, y + 112);
+  ctx.font = "800 14px system-ui";
+  ctx.fillText(`Training data will be partitioned across ${config.clients} clients using ${config.skew}.`, 42, y + 142);
 }
 
 function drawSplitCanvas(config, distributions) {
@@ -753,25 +802,26 @@ function drawSplitCanvas(config, distributions) {
   clearCanvas(ctx, width, height);
   const left = 118;
   const top = 52;
-  const rowHeight = Math.max(28, Math.min(42, (height - 92) / Math.max(1, distributions.length)));
-  const barWidth = width - left - 42;
+  const rowHeight = Math.max(38, Math.min(58, (height - 118) / Math.max(1, distributions.length)));
+  const barWidth = width - left - 118;
   ctx.fillStyle = css("--text");
-  ctx.font = "900 17px system-ui";
-  ctx.fillText("Client training partitions", 26, 28);
+  ctx.font = "900 22px system-ui";
+  ctx.fillText("Client training partitions", 26, 34);
   distributions.forEach((row, rowIndex) => {
     const y = top + rowIndex * rowHeight;
     ctx.fillStyle = css("--muted");
-    ctx.font = "800 12px system-ui";
-    ctx.fillText(row.name, 26, y + 20);
+    ctx.font = "900 14px system-ui";
+    ctx.fillText(row.name, 26, y + 26);
     let x = left;
     row.values.forEach((value, index) => {
       const w = Math.max(2, value * barWidth);
       ctx.fillStyle = palette[index % palette.length];
-      ctx.fillRect(x, y, w, rowHeight - 8);
+      ctx.fillRect(x, y, w, rowHeight - 10);
       x += w;
     });
     ctx.fillStyle = css("--muted");
-    ctx.fillText(`${row.samples} samples`, width - 98, y + 20);
+    ctx.font = "800 12px system-ui";
+    ctx.fillText(`${row.samples} samples`, width - 104, y + 26);
   });
   const labels = distributions[0]?.classes || [];
   let legendX = left;
@@ -787,7 +837,8 @@ function drawSplitCanvas(config, distributions) {
 
 async function startGeneralSimulation() {
   currentMode = "general";
-  const dataset = getDataset();
+  const baseDataset = getDataset();
+  const dataset = { ...baseDataset, target: els.targetSelect.value || baseDataset.target };
   const model = getSelectedModel();
   const testSize = clamp(Number(els.testSplit.value), 0.1, 0.5);
   const validationSize = els.addValidation.checked ? clamp(Number(els.validationSplit.value), 0.05, 0.3) : 0;
@@ -903,6 +954,8 @@ async function requestBackendSimulation(config) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       dataset_id: config.dataset_id,
+      target: config.dataset.target,
+      task: config.dataset.task,
       model_id: config.model_id,
       features: config.features,
       clients: config.clients,
@@ -1154,9 +1207,9 @@ function renderMultiLineChart(canvas, options) {
   clearCanvas(ctx, width, height);
   const plot = { left: 78, top: 56, right: width - 92, bottom: height - 70 };
   drawGrid(ctx, width, height, plot, options.min, options.max, options.yLabel, options.series[0]?.values?.length || 0);
-  options.series.forEach((series) => {
+  options.series.forEach((series, seriesIndex) => {
     drawLine(ctx, series.values, series.color, options.min, options.max, plot);
-    drawPointLabels(ctx, series.values, series.color, options.min, options.max, plot, options.asPercent);
+    drawPointLabels(ctx, series.values, series.color, options.min, options.max, plot, options.asPercent, seriesIndex);
   });
   ctx.fillStyle = css("--text");
   ctx.font = "900 17px system-ui";
@@ -1172,7 +1225,7 @@ function renderMultiLineChart(canvas, options) {
   });
 }
 
-function drawPointLabels(ctx, values, color, minValue, maxValue, plot, asPercent) {
+function drawPointLabels(ctx, values, color, minValue, maxValue, plot, asPercent, seriesIndex = 0) {
   if (!values.length) return;
   const range = Math.max(0.001, maxValue - minValue);
   const labelEvery = values.length <= 12 ? 1 : Math.ceil(values.length / 10);
@@ -1186,8 +1239,11 @@ function drawPointLabels(ctx, values, color, minValue, maxValue, plot, asPercent
     const metrics = ctx.measureText(text);
     const labelWidth = metrics.width + 12;
     const labelHeight = isFinal ? 23 : 16;
+    const verticalDirection = seriesIndex % 2 === 0 ? -1 : 1;
+    const verticalGap = isFinal ? 30 : 20;
     const boxX = clamp(isFinal ? x - labelWidth - 8 : x - labelWidth / 2, plot.left + 2, plot.right - labelWidth - 2);
-    const boxY = clamp(y - (isFinal ? 30 : 22), plot.top + 4, plot.bottom - labelHeight - 4);
+    const preferredY = verticalDirection < 0 ? y - verticalGap : y + verticalGap - labelHeight;
+    const boxY = clamp(preferredY, plot.top + 4, plot.bottom - labelHeight - 4);
     ctx.fillStyle = isFinal ? color : colorWithAlpha(color, 0.14);
     roundedRect(ctx, boxX, boxY, labelWidth, labelHeight, 5);
     ctx.fill();
@@ -1334,14 +1390,17 @@ function renderMatrix(config, result) {
   const matrix = result.confusionMatrix || fallbackConfusion(config, result.finalMetric);
   const n = matrix.length;
   const maxValue = Math.max(...matrix.flat(), 1);
-  const size = Math.min(44, Math.floor((Math.min(width, height) - 110) / n));
-  const startX = Math.max(86, (width - size * n) / 2);
-  const startY = 72;
+  const maxCell = n <= 2 ? 132 : n <= 3 ? 108 : n <= 5 ? 82 : 58;
+  const labelSpace = n <= 3 ? 180 : 132;
+  const size = Math.max(42, Math.min(maxCell, Math.floor((Math.min(width - labelSpace - 60, height - 170)) / n)));
+  const matrixWidth = size * n;
+  const startX = Math.max(labelSpace, (width - matrixWidth) / 2);
+  const startY = 96;
   ctx.fillStyle = css("--text");
-  ctx.font = "800 14px system-ui";
+  ctx.font = "900 17px system-ui";
   ctx.fillText("Predicted label", startX + size * n * 0.28, 28);
   ctx.save();
-  ctx.translate(24, startY + size * n * 0.72);
+  ctx.translate(32, startY + size * n * 0.72);
   ctx.rotate(-Math.PI / 2);
   ctx.fillText("True label", 0, 0);
   ctx.restore();
@@ -1355,21 +1414,28 @@ function renderMatrix(config, result) {
         : colorWithAlpha(css("--danger"), 0.2 + strength * 0.65);
       ctx.fillRect(startX + col * size, startY + row * size, size - 3, size - 3);
       ctx.fillStyle = "#ffffff";
-      ctx.font = "800 12px system-ui";
+      ctx.font = `${size >= 82 ? "900 18px" : "900 13px"} system-ui`;
       ctx.textAlign = "center";
       ctx.fillText(String(value), startX + col * size + size / 2 - 1, startY + row * size + size / 2 + 4);
     }
   }
   ctx.textAlign = "left";
   ctx.fillStyle = css("--muted");
-  ctx.font = "700 11px system-ui";
+  ctx.font = `${n <= 3 ? "900 14px" : "800 11px"} system-ui`;
   const labels = result.classNames || config.dataset.classes || [];
   labels.slice(0, n).forEach((label, index) => {
-    const short = String(label).slice(0, 8);
-    ctx.fillText(short, startX + index * size, startY + n * size + 20);
-    ctx.fillText(short, startX - 70, startY + index * size + size / 2 + 4);
+    const short = truncateLabel(String(label), n <= 3 ? 18 : 10);
+    ctx.textAlign = "center";
+    ctx.fillText(short, startX + index * size + size / 2, startY + n * size + 26);
+    ctx.textAlign = "right";
+    ctx.fillText(short, startX - 14, startY + index * size + size / 2 + 5);
   });
+  ctx.textAlign = "left";
   els.matrixBox.textContent = "Diagonal cells are correct predictions; off-diagonal cells are mistakes.";
+}
+
+function truncateLabel(label, maxLength) {
+  return label.length > maxLength ? `${label.slice(0, Math.max(1, maxLength - 1))}...` : label;
 }
 
 function drawLoop() {

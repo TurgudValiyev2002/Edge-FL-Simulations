@@ -279,14 +279,32 @@ def dataset_from_csv(rows: list[dict[str, Any]], target: str, task: str) -> Data
 
 def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBundle | None = None) -> dict[str, Any]:
     dataset = custom_dataset or load_dataset(str(config.get("dataset_id", "digits")))
+    target_override = str(config.get("target") or dataset.target)
     selected_features = config.get("features") or dataset.feature_names
-    feature_indices = [dataset.feature_names.index(name) for name in selected_features if name in dataset.feature_names]
+    is_regression = "regression" in dataset.task
+    class_names = dataset.class_names
+
+    if target_override != dataset.target and target_override in dataset.feature_names:
+        target_index = dataset.feature_names.index(target_override)
+        y_raw = dataset.X[:, target_index]
+        selected_features = [name for name in selected_features if name != target_override]
+        if is_regression:
+            y = y_raw.astype(float)
+            class_names = []
+        else:
+            y, class_names = _feature_target_to_classes(y_raw, target_override)
+    else:
+        y = dataset.y
+
+    feature_indices = [
+        dataset.feature_names.index(name)
+        for name in selected_features
+        if name in dataset.feature_names and name != target_override
+    ]
     if not feature_indices:
-        feature_indices = list(range(dataset.X.shape[1]))
+        feature_indices = [index for index in range(dataset.X.shape[1]) if dataset.feature_names[index] != target_override]
 
     X = dataset.X[:, feature_indices]
-    y = dataset.y
-    is_regression = "regression" in dataset.task
     stratify = None if is_regression or len(np.unique(y)) < 2 else y
     test_size = float(np.clip(float(config.get("test_size", 0.25)), 0.1, 0.5))
     validation_size = float(np.clip(float(config.get("validation_size", 0.0)), 0.0, 0.3))
@@ -394,7 +412,7 @@ def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBund
             last_probabilities = probs
 
     communication = estimate_communication(model_id, clients, rounds, client_fraction, dropout)
-    distributions = client_distribution_rows(client_indices, y_train, dataset.class_names, is_regression)
+    distributions = client_distribution_rows(client_indices, y_train, class_names, is_regression)
     stability = float(max(0.05, min(0.99, 1.0 - np.std(metric_curve[-min(8, len(metric_curve)) :]) * 2.0)))
 
     response: dict[str, Any] = {
@@ -432,7 +450,7 @@ def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBund
     else:
         cm = confusion_matrix(y_test, last_predictions, labels=classes)
         response["confusionMatrix"] = cm.tolist()
-        response["classNames"] = [dataset.class_names[int(label)] if dataset.class_names else str(label) for label in classes]
+        response["classNames"] = [class_names[int(label)] if class_names else str(label) for label in classes]
         response["evaluationRows"] = [
             ["Balanced accuracy", f"{metric_curve[-1]:.4f}", "Real mean recall across classes on the held-out test split."],
             ["Cross entropy", f"{loss_curve[-1]:.4f}", "Real multiclass log loss from aggregated client probabilities."],
@@ -580,6 +598,16 @@ def _predict_proba_aligned(model, X_test: np.ndarray, classes: np.ndarray) -> np
         target_index = int(np.where(classes == label)[0][0])
         aligned[row_index, target_index] = 1.0
     return aligned
+
+
+def _feature_target_to_classes(values: np.ndarray, target_name: str) -> tuple[np.ndarray, list[str]]:
+    numeric = np.asarray(values, dtype=float)
+    quantiles = np.quantile(numeric, [0.33, 0.66])
+    if np.isclose(quantiles[0], quantiles[1]):
+        labels = np.asarray(numeric > np.median(numeric), dtype=int)
+        return labels, [f"low {target_name}", f"high {target_name}"]
+    labels = np.digitize(numeric, quantiles, right=False).astype(int)
+    return labels, [f"low {target_name}", f"medium {target_name}", f"high {target_name}"]
 
 
 def client_distribution_rows(client_indices: list[np.ndarray], y_train: np.ndarray, class_names: list[str], is_regression: bool) -> list[dict[str, Any]]:

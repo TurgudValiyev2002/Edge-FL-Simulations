@@ -439,11 +439,11 @@ input:disabled {
 }
 
 #splitSummaryCanvas {
-  height: 240px;
+  height: 320px;
 }
 
 #splitCanvas {
-  height: 520px;
+  height: 560px;
 }
 
 .scene-overlay {
@@ -560,7 +560,7 @@ input:disabled {
 
 .results-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   margin-top: 18px;
 }
@@ -578,7 +578,11 @@ input:disabled {
 
 #qualityChart,
 #lossChart {
-  height: 440px;
+  height: 460px;
+}
+
+#confusionCanvas {
+  height: 620px;
 }
 
 .checkbox-line {
