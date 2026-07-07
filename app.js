@@ -396,7 +396,10 @@ function wireEvents() {
     updateDeepLearningLocks();
   });
   els.targetSelect.addEventListener("change", () => {
-    renderFeatureOptions(getDataset(), els.targetSelect.value);
+    const dataset = getDataset();
+    renderFeatureOptions(dataset, els.targetSelect.value);
+    renderModelOptions();
+    updateDeepLearningLocks();
   });
   els.modelSelect.addEventListener("change", updateDeepLearningLocks);
   els.customTask.addEventListener("change", () => {
@@ -684,7 +687,8 @@ function renderFeatureOptions(dataset, targetName = dataset.target) {
 function renderModelOptions() {
   const dataset = getDataset();
   const previous = els.modelSelect.value;
-  const available = modelCatalog.filter((model) => model.tasks.includes(dataset.task) || model.tasks.includes(normalizeTask(dataset.task)));
+  const task = inferTaskForSelection(dataset, els.targetSelect?.value || dataset.target);
+  const available = modelCatalog.filter((model) => model.tasks.includes(task) || model.tasks.includes(normalizeTask(task)));
   els.modelSelect.innerHTML = "";
   available.forEach((model) => {
     const option = document.createElement("option");
@@ -695,6 +699,13 @@ function renderModelOptions() {
   if (available.some((model) => model.id === previous)) {
     els.modelSelect.value = previous;
   }
+}
+
+function inferTaskForSelection(dataset, targetName = dataset.target) {
+  if (dataset.id === "custom_csv") return els.customTask.value;
+  if (dataset.featureMode === "tensor") return dataset.task;
+  if (targetName !== dataset.target && dataset.features.includes(targetName)) return "regression";
+  return dataset.task;
 }
 
 function normalizeTask(task) {
@@ -838,7 +849,8 @@ function drawSplitCanvas(config, distributions) {
 async function startGeneralSimulation() {
   currentMode = "general";
   const baseDataset = getDataset();
-  const dataset = { ...baseDataset, target: els.targetSelect.value || baseDataset.target };
+  const target = els.targetSelect.value || baseDataset.target;
+  const dataset = { ...baseDataset, target, task: inferTaskForSelection(baseDataset, target) };
   const model = getSelectedModel();
   const testSize = clamp(Number(els.testSplit.value), 0.1, 0.5);
   const validationSize = els.addValidation.checked ? clamp(Number(els.validationSplit.value), 0.05, 0.3) : 0;

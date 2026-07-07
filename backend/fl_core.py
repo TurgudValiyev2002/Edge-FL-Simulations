@@ -280,8 +280,9 @@ def dataset_from_csv(rows: list[dict[str, Any]], target: str, task: str) -> Data
 def run_federated_experiment(config: dict[str, Any], custom_dataset: DatasetBundle | None = None) -> dict[str, Any]:
     dataset = custom_dataset or load_dataset(str(config.get("dataset_id", "digits")))
     target_override = str(config.get("target") or dataset.target)
+    task_override = str(config.get("task") or dataset.task)
     selected_features = config.get("features") or dataset.feature_names
-    is_regression = "regression" in dataset.task
+    is_regression = "regression" in task_override
     class_names = dataset.class_names
 
     if target_override != dataset.target and target_override in dataset.feature_names:
