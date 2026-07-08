@@ -437,9 +437,9 @@ function wireEvents() {
   els.startLiveButton.addEventListener("click", () => {
     if (!activeSimulation || els.startLiveButton.disabled) return;
     openConfirm(
-      activeSimulation.finished ? "Replay simulation?" : "Start live simulation?",
+      activeSimulation.finished ? "Rerun simulation?" : "Start live simulation?",
       activeSimulation.finished
-        ? "The live animation and charts will replay from round 0."
+        ? "The live animation and charts will run again from round 0."
         : "The prepared simulation will begin. Metrics and animation will move round by round.",
       startLivePlayback
     );
@@ -781,11 +781,11 @@ function drawSplitSummary(config) {
     ctx.fillStyle = color;
     roundedRect(ctx, x, y, w, 58, 10);
     ctx.fill();
-    if (w > 96) {
+    if (w > 140) {
       ctx.fillStyle = "#ffffff";
-      ctx.font = "900 14px system-ui";
+      ctx.font = "900 16px system-ui";
       ctx.textAlign = "center";
-      ctx.fillText(`${(ratio * 100).toFixed(0)}%`, x + w / 2, y + 36);
+      ctx.fillText(`${(ratio * 100).toFixed(0)}%`, clamp(x + w / 2, 84, width - 84), y + 36);
       ctx.textAlign = "left";
     }
     x += w;
@@ -1016,7 +1016,8 @@ function playLiveResult() {
       activeSimulation.finished = true;
       renderLiveState(maxRound);
       els.startLiveButton.disabled = false;
-      els.startLiveButton.textContent = "Replay Live Simulation";
+      els.startLiveButton.textContent = "Rerun Simulation";
+      els.startLiveOverlay.classList.remove("hidden");
       clearInterval(liveTimer);
       return;
     }
@@ -1033,12 +1034,13 @@ function stopLiveSimulation() {
 
 function renderLiveState(round) {
   const { config, result } = activeSimulation;
-  const curve = result.curve.slice(0, round + 1);
-  const loss = result.loss.slice(0, round + 1);
-  const trainCurve = (result.trainCurve?.length ? result.trainCurve : deriveTrainCurve(result.curve, result.classification)).slice(0, round + 1);
-  const trainLoss = (result.trainLoss?.length ? result.trainLoss : deriveTrainLoss(result.loss)).slice(0, round + 1);
-  const validationCurve = (result.validationCurve || []).slice(0, round + 1);
-  const validationLoss = (result.validationLoss || []).slice(0, round + 1);
+  const preparedOnly = !activeSimulation.running && !activeSimulation.finished;
+  const curve = preparedOnly ? [0] : result.curve.slice(0, round + 1);
+  const loss = preparedOnly ? [0] : result.loss.slice(0, round + 1);
+  const trainCurve = preparedOnly ? [0] : (result.trainCurve?.length ? result.trainCurve : deriveTrainCurve(result.curve, result.classification)).slice(0, round + 1);
+  const trainLoss = preparedOnly ? [0] : (result.trainLoss?.length ? result.trainLoss : deriveTrainLoss(result.loss)).slice(0, round + 1);
+  const validationCurve = preparedOnly && result.validationCurve?.length ? [0] : (result.validationCurve || []).slice(0, round + 1);
+  const validationLoss = preparedOnly && result.validationLoss?.length ? [0] : (result.validationLoss || []).slice(0, round + 1);
   activeSimulation.displayedCurve = curve;
   activeSimulation.displayedLoss = loss;
 
@@ -1051,7 +1053,7 @@ function renderLiveState(round) {
   const phase = activeSimulation.running ? phases[aggregationPhaseIndex()] : phases[Math.min(round % phases.length, phases.length - 1)];
 
   const maxRound = Math.max(0, result.curve.length - 1);
-  els.roundLabel.textContent = activeSimulation.finished ? `Finished at round ${maxRound}` : `Round ${round} / ${maxRound}`;
+  els.roundLabel.textContent = preparedOnly ? `Ready: 0 / ${maxRound}` : activeSimulation.finished ? `Finished at round ${maxRound}` : `Round ${round} / ${maxRound}`;
   els.phaseLabel.textContent = activeSimulation.finished ? "Training complete: final global model is ready" : (activeSimulation.running ? phase : "Ready: click Start Live Simulation");
   els.primaryMetricLabel.textContent = classification ? "Balanced accuracy" : "RMSE";
   els.lossMetricLabel.textContent = classification ? "Cross entropy" : "MSE loss";
@@ -1069,13 +1071,30 @@ function renderLiveState(round) {
   els.testQualityMetric.textContent = formatMetric(testMetricNow, classification);
   els.trainLossMetric.textContent = trainLossNow.toFixed(trainLossNow >= 10 ? 1 : 3);
   els.testLossMetric.textContent = testLossNow.toFixed(testLossNow >= 10 ? 1 : 3);
-  els.commMetric.textContent = formatMb(result.communication || 0);
-  els.stabilityMetric.textContent = Number(result.stability || 0).toFixed(2);
+  const displayResult = preparedOnly ? preparedDisplayResult(config, result, classification) : result;
+  els.commMetric.textContent = formatMb(displayResult.communication || 0);
+  els.stabilityMetric.textContent = Number(displayResult.stability || 0).toFixed(2);
   renderQualityChart(trainCurve, curve, validationCurve, classification);
   renderLossChart(trainLoss, loss, validationLoss, classification);
   renderDistributions(result.distributions || []);
-  renderEvaluation(config, result);
-  renderMatrix(config, result);
+  renderEvaluation(config, displayResult);
+  renderMatrix(config, displayResult);
+}
+
+function preparedDisplayResult(config, result, classification) {
+  const classCount = Math.max(2, Math.min((result.classNames || config.dataset.classes || []).length || 2, 6));
+  return {
+    ...result,
+    finalMetric: 0,
+    finalLoss: 0,
+    communication: 0,
+    stability: 0,
+    confusionMatrix: classification ? Array.from({ length: classCount }, () => Array(classCount).fill(0)) : null,
+    residualRows: classification ? null : [["Small residual", 0], ["Medium residual", 0], ["Large residual", 0]],
+    evaluationRows: classification
+      ? [["Balanced accuracy", "0.0000", "Waiting for the first live round."], ["Cross entropy", "0.0000", "Waiting for the first live round."]]
+      : [["RMSE", "0.0000", "Waiting for the first live round."], ["MSE loss", "0.0000", "Waiting for the first live round."]]
+  };
 }
 
 function makeFallbackResult(config) {
@@ -1224,7 +1243,7 @@ function renderMultiLineChart(canvas, options) {
     drawPointLabels(ctx, series.values, series.color, options.min, options.max, plot, options.asPercent, seriesIndex);
   });
   ctx.fillStyle = css("--text");
-  ctx.font = "900 17px system-ui";
+  ctx.font = "900 20px system-ui";
   ctx.fillText(options.title, plot.left, 28);
   let legendX = plot.left + 330;
   options.series.forEach((series) => {
@@ -1247,10 +1266,10 @@ function drawPointLabels(ctx, values, color, minValue, maxValue, plot, asPercent
     const x = plot.left + (plot.right - plot.left) * (index / Math.max(1, values.length - 1));
     const y = plot.bottom - (plot.bottom - plot.top) * ((value - minValue) / range);
     const text = asPercent ? `${(value * 100).toFixed(1)}%` : value.toFixed(value >= 10 ? 1 : 3);
-    ctx.font = `${isFinal ? "900 15px" : values.length <= 2 ? "900 14px" : "800 10px"} system-ui`;
+    ctx.font = `${isFinal ? "900 18px" : values.length <= 2 ? "900 16px" : "900 12px"} system-ui`;
     const metrics = ctx.measureText(text);
     const labelWidth = metrics.width + 12;
-    const labelHeight = isFinal ? 23 : 16;
+    const labelHeight = isFinal ? 28 : 20;
     const verticalDirection = seriesIndex % 2 === 0 ? -1 : 1;
     const verticalGap = isFinal ? 30 : 20;
     const boxX = clamp(isFinal ? x - labelWidth - 8 : x - labelWidth / 2, plot.left + 2, plot.right - labelWidth - 2);
@@ -1260,7 +1279,7 @@ function drawPointLabels(ctx, values, color, minValue, maxValue, plot, asPercent
     roundedRect(ctx, boxX, boxY, labelWidth, labelHeight, 5);
     ctx.fill();
     ctx.fillStyle = isFinal ? "#ffffff" : color;
-    ctx.fillText(text, boxX + 6, boxY + (isFinal ? 16 : 12));
+    ctx.fillText(text, boxX + 6, boxY + (isFinal ? 20 : 15));
   });
 }
 
@@ -1484,7 +1503,7 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.fillRect(0, 0, width, height);
 
   const simulationActive = activeView === "simulation" && activeSimulation;
-  const panelWidth = simulationActive ? Math.min(350, Math.max(290, width * 0.32)) : 0;
+  const panelWidth = simulationActive ? Math.min(430, Math.max(340, width * 0.34)) : 0;
   const sceneWidth = width - panelWidth;
   const center = { x: sceneWidth / 2, y: height / 2 + (simulationActive ? 8 : 0) };
   const radius = Math.min(sceneWidth, height) * (simulationActive ? 0.31 : 0.34);
@@ -1551,7 +1570,7 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.font = "700 11px system-ui";
   ctx.fillText(finished ? "finished" : simulationActive ? `Delta ${signedNumber(aggregation.value)}` : personalized ? "+ local heads" : "global model", center.x, center.y + 15);
   if (simulationActive) {
-    drawAggregationEngine(ctx, sceneWidth + 12, 18, panelWidth - 26, height - 36, activeSimulation.config, aggregationRows, aggregation, phaseIndex);
+    drawAggregationEngine(ctx, sceneWidth + 14, 70, panelWidth - 30, Math.min(470, height - 110), activeSimulation.config, aggregationRows, aggregation, phaseIndex);
   }
 }
 
@@ -1669,23 +1688,23 @@ function drawClientUpdateGlyph(ctx, x, y, nodeW, nodeH, row, phaseIndex) {
 }
 
 function drawAggregationEngine(ctx, x, y, w, h, config, rows, aggregation, phaseIndex) {
-  ctx.fillStyle = "rgba(2, 6, 23, 0.58)";
+  ctx.fillStyle = "rgba(2, 6, 23, 0.72)";
   roundedRect(ctx, x, y, w, h, 12);
   ctx.fill();
   ctx.strokeStyle = "rgba(148, 163, 184, 0.28)";
   ctx.stroke();
 
   ctx.fillStyle = "#e2e8f0";
-  ctx.font = "900 18px system-ui";
+  ctx.font = "900 20px system-ui";
   ctx.fillText("Aggregation engine", x + 18, y + 34);
   ctx.fillStyle = "#93c5fd";
-  ctx.font = "900 14px system-ui";
+  ctx.font = "900 15px system-ui";
   ctx.fillText(config.aggregation, x + 18, y + 58);
   ctx.fillStyle = "rgba(226, 232, 240, 0.78)";
-  ctx.font = "700 12px system-ui";
-  wrapCanvasText(ctx, aggregationTeachingText(config.aggregation), x + 18, y + 80, w - 36, 16, 3);
+  ctx.font = "800 12px system-ui";
+  wrapCanvasText(ctx, aggregationTeachingText(config.aggregation), x + 18, y + 82, w - 36, 17, 2);
 
-  const axisY = y + 168;
+  const axisY = y + 164;
   const axisX = x + 28;
   const axisW = w - 56;
   ctx.strokeStyle = "rgba(226, 232, 240, 0.38)";
@@ -1726,17 +1745,17 @@ function drawAggregationEngine(ctx, x, y, w, h, config, rows, aggregation, phase
   ctx.fillText(`global ${signedNumber(aggregation.value)}`, clamp(aggX, axisX + 45, axisX + axisW - 45), axisY - 92);
   ctx.textAlign = "left";
 
-  const statsY = y + 250;
+  const statsY = y + 238;
   drawAggregationStat(ctx, x + 18, statsY, w - 36, "Active clients", `${aggregation.selected.length}/${rows.length}`);
-  drawAggregationStat(ctx, x + 18, statsY + 50, w - 36, "Trimmed / ignored", `${rows.filter((row) => row.trimmed || !row.active).length}`);
-  drawAggregationStat(ctx, x + 18, statsY + 100, w - 36, "Server update", signedNumber(aggregation.value));
+  drawAggregationStat(ctx, x + 18, statsY + 46, w - 36, "Trimmed / ignored", `${rows.filter((row) => row.trimmed || !row.active).length}`);
+  drawAggregationStat(ctx, x + 18, statsY + 92, w - 36, "Server update", signedNumber(aggregation.value));
 
   ctx.fillStyle = phaseIndex === 3 ? "rgba(52, 211, 153, 0.18)" : "rgba(56, 189, 248, 0.12)";
-  roundedRect(ctx, x + 18, h + y - 78, w - 36, 48, 8);
+  roundedRect(ctx, x + 18, y + h - 62, w - 36, 42, 8);
   ctx.fill();
   ctx.fillStyle = "#e2e8f0";
   ctx.font = "900 12px system-ui";
-  ctx.fillText(phaseIndex === 3 ? "Server is combining updates now" : "Watch update dots move through the FL loop", x + 32, h + y - 49);
+  ctx.fillText(phaseIndex === 3 ? "Server combines accepted updates" : "Dots show local update directions", x + 32, y + h - 36);
 }
 
 function drawAggregationStat(ctx, x, y, w, label, value) {
