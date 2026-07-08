@@ -772,12 +772,12 @@ function drawSplitSummary(config) {
   ].filter((part) => part[1] > 0);
 
   ctx.fillStyle = css("--text");
-  ctx.font = "900 24px system-ui";
+  ctx.font = "900 20px system-ui";
   ctx.fillText(`${config.dataset.name}: ${config.dataset.samples.toLocaleString()} samples`, 42, 44);
 
-  const centerX = Math.min(260, width * 0.28);
-  const centerY = Math.max(180, height * 0.54);
-  const radius = Math.min(104, height * 0.31, width * 0.16);
+  const centerX = Math.min(230, width * 0.24);
+  const centerY = Math.max(154, height * 0.52);
+  const radius = Math.min(82, height * 0.26, width * 0.13);
   let startAngle = -Math.PI / 2;
   parts.forEach(([label, ratio, color]) => {
     const endAngle = startAngle + Math.PI * 2 * ratio;
@@ -792,7 +792,7 @@ function drawSplitSummary(config) {
     const labelY = centerY + Math.sin(midAngle) * radius * 0.68;
     if (ratio >= 0.1) {
       ctx.fillStyle = "#ffffff";
-      ctx.font = "900 17px system-ui";
+      ctx.font = "900 14px system-ui";
       ctx.textAlign = "center";
       ctx.fillText(`${(ratio * 100).toFixed(0)}%`, labelX, labelY + 6);
       ctx.textAlign = "left";
@@ -805,31 +805,31 @@ function drawSplitSummary(config) {
   ctx.arc(centerX, centerY, radius * 0.52, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = css("--text");
-  ctx.font = "900 18px system-ui";
+  ctx.font = "900 15px system-ui";
   ctx.textAlign = "center";
   ctx.fillText("Dataset", centerX, centerY - 2);
-  ctx.font = "800 13px system-ui";
+  ctx.font = "800 12px system-ui";
   ctx.fillStyle = css("--muted");
   ctx.fillText("split", centerX, centerY + 18);
   ctx.textAlign = "left";
 
-  const legendX = Math.min(width * 0.52, centerX + radius + 90);
-  let legendY = centerY - 72;
+  const legendX = Math.min(width * 0.5, centerX + radius + 86);
+  let legendY = centerY - 56;
   parts.forEach(([label, ratio, color]) => {
     ctx.fillStyle = color;
-    roundedRect(ctx, legendX, legendY - 15, 22, 22, 5);
+    roundedRect(ctx, legendX, legendY - 14, 18, 18, 5);
     ctx.fill();
     ctx.fillStyle = css("--text");
-    ctx.font = "900 19px system-ui";
-    ctx.fillText(`${label}: ${(ratio * 100).toFixed(0)}%`, legendX + 34, legendY + 2);
+    ctx.font = "900 16px system-ui";
+    ctx.fillText(`${label}: ${(ratio * 100).toFixed(0)}%`, legendX + 30, legendY);
     ctx.fillStyle = css("--muted");
-    ctx.font = "800 13px system-ui";
-    ctx.fillText(`${Math.round(config.dataset.samples * ratio).toLocaleString()} samples`, legendX + 34, legendY + 22);
-    legendY += 62;
+    ctx.font = "800 12px system-ui";
+    ctx.fillText(`${Math.round(config.dataset.samples * ratio).toLocaleString()} samples`, legendX + 30, legendY + 19);
+    legendY += 48;
   });
 
   ctx.fillStyle = css("--muted");
-  ctx.font = "800 15px system-ui";
+  ctx.font = "800 13px system-ui";
   ctx.fillText(`Only the train split is distributed across ${config.clients} FL clients. Validation/test stay centralized for evaluation.`, 42, height - 34);
 }
 
@@ -841,26 +841,26 @@ function drawSplitCanvas(config, distributions) {
   clearCanvas(ctx, width, height);
   const left = 118;
   const top = 48;
-  const rowHeight = Math.max(28, Math.min(42, (height - 104) / Math.max(1, distributions.length)));
+  const rowHeight = Math.max(24, Math.min(32, (height - 88) / Math.max(1, distributions.length)));
   const barWidth = width - left - 118;
   ctx.fillStyle = css("--text");
-  ctx.font = "900 18px system-ui";
-  ctx.fillText("Client training partitions", 26, 30);
+  ctx.font = "900 16px system-ui";
+  ctx.fillText("Client training partitions", 26, 28);
   distributions.forEach((row, rowIndex) => {
     const y = top + rowIndex * rowHeight;
     ctx.fillStyle = css("--muted");
     ctx.font = "900 12px system-ui";
-    ctx.fillText(row.name, 26, y + 20);
+    ctx.fillText(row.name, 26, y + 18);
     let x = left;
     row.values.forEach((value, index) => {
       const w = Math.max(2, value * barWidth);
       ctx.fillStyle = palette[index % palette.length];
-      ctx.fillRect(x, y, w, rowHeight - 7);
+      ctx.fillRect(x, y, w, rowHeight - 6);
       x += w;
     });
     ctx.fillStyle = css("--muted");
     ctx.font = "800 11px system-ui";
-    ctx.fillText(`${row.samples} samples`, width - 104, y + 20);
+    ctx.fillText(`${row.samples} samples`, width - 104, y + 18);
   });
   const labels = distributions[0]?.classes || [];
   let legendX = left;
@@ -1598,7 +1598,7 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.font = "700 11px system-ui";
   ctx.fillText(finished ? "finished" : simulationActive ? `Delta ${signedNumber(aggregation.value)}` : personalized ? "+ local heads" : "global model", center.x, center.y + 15);
   if (simulationActive) {
-    drawAggregationEngine(ctx, sceneWidth + 12, 68, panelWidth - 24, Math.min(450, height - 112), activeSimulation.config, aggregationRows, aggregation, phaseIndex);
+    drawAggregationEngine(ctx, sceneWidth + 12, 44, panelWidth - 24, Math.min(540, height - 70), activeSimulation.config, aggregationRows, aggregation, phaseIndex);
   }
 }
 
@@ -1734,7 +1734,7 @@ function drawAggregationEngine(ctx, x, y, w, h, config, rows, aggregation, phase
   wrapCanvasText(ctx, aggregationTeachingText(config.aggregation), x + 22, y + 78, w - 44, 16, 3, "center");
   ctx.textAlign = "left";
 
-  const axisY = y + 170;
+  const axisY = y + 235;
   const axisX = x + 28;
   const axisW = w - 56;
   ctx.strokeStyle = "rgba(226, 232, 240, 0.38)";
@@ -1775,7 +1775,7 @@ function drawAggregationEngine(ctx, x, y, w, h, config, rows, aggregation, phase
   ctx.fillText(`global ${signedNumber(aggregation.value)}`, clamp(aggX, axisX + 45, axisX + axisW - 45), axisY - 92);
   ctx.textAlign = "left";
 
-  const statsY = y + 238;
+  const statsY = y + 312;
   drawAggregationStat(ctx, x + 18, statsY, w - 36, "Active clients", `${aggregation.selected.length}/${rows.length}`);
   drawAggregationStat(ctx, x + 18, statsY + 46, w - 36, "Trimmed / ignored", `${rows.filter((row) => row.trimmed || !row.active).length}`);
   drawAggregationStat(ctx, x + 18, statsY + 92, w - 36, "Server update", signedNumber(aggregation.value));
