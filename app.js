@@ -770,39 +770,67 @@ function drawSplitSummary(config) {
     ["Validation", config.validation_size, css("--warning")],
     ["Test", config.test_size, css("--danger")]
   ].filter((part) => part[1] > 0);
-  let x = 42;
-  const y = 104;
-  const barWidth = width - 84;
+
   ctx.fillStyle = css("--text");
-  ctx.font = "900 22px system-ui";
-  ctx.fillText(`${config.dataset.name}: ${config.dataset.samples.toLocaleString()} samples`, 42, 42);
+  ctx.font = "900 24px system-ui";
+  ctx.fillText(`${config.dataset.name}: ${config.dataset.samples.toLocaleString()} samples`, 42, 44);
+
+  const centerX = Math.min(260, width * 0.28);
+  const centerY = Math.max(180, height * 0.54);
+  const radius = Math.min(104, height * 0.31, width * 0.16);
+  let startAngle = -Math.PI / 2;
   parts.forEach(([label, ratio, color]) => {
-    const w = barWidth * ratio;
+    const endAngle = startAngle + Math.PI * 2 * ratio;
     ctx.fillStyle = color;
-    roundedRect(ctx, x, y, w, 58, 10);
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+    ctx.closePath();
     ctx.fill();
-    if (w > 140) {
+    const midAngle = (startAngle + endAngle) / 2;
+    const labelX = centerX + Math.cos(midAngle) * radius * 0.68;
+    const labelY = centerY + Math.sin(midAngle) * radius * 0.68;
+    if (ratio >= 0.1) {
       ctx.fillStyle = "#ffffff";
-      ctx.font = "900 16px system-ui";
+      ctx.font = "900 17px system-ui";
       ctx.textAlign = "center";
-      ctx.fillText(`${(ratio * 100).toFixed(0)}%`, clamp(x + w / 2, 84, width - 84), y + 36);
+      ctx.fillText(`${(ratio * 100).toFixed(0)}%`, labelX, labelY + 6);
       ctx.textAlign = "left";
     }
-    x += w;
+    startAngle = endAngle;
   });
-  let legendX = 42;
+
+  ctx.fillStyle = css("--surface-soft");
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius * 0.52, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = css("--text");
+  ctx.font = "900 18px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText("Dataset", centerX, centerY - 2);
+  ctx.font = "800 13px system-ui";
+  ctx.fillStyle = css("--muted");
+  ctx.fillText("split", centerX, centerY + 18);
+  ctx.textAlign = "left";
+
+  const legendX = Math.min(width * 0.52, centerX + radius + 90);
+  let legendY = centerY - 72;
   parts.forEach(([label, ratio, color]) => {
     ctx.fillStyle = color;
-    roundedRect(ctx, legendX, y + 78, 18, 18, 4);
+    roundedRect(ctx, legendX, legendY - 15, 22, 22, 5);
     ctx.fill();
     ctx.fillStyle = css("--text");
-    ctx.font = "900 15px system-ui";
-    ctx.fillText(`${label}: ${(ratio * 100).toFixed(0)}%`, legendX + 26, y + 93);
-    legendX += Math.max(158, ctx.measureText(`${label}: ${(ratio * 100).toFixed(0)}%`).width + 64);
+    ctx.font = "900 19px system-ui";
+    ctx.fillText(`${label}: ${(ratio * 100).toFixed(0)}%`, legendX + 34, legendY + 2);
+    ctx.fillStyle = css("--muted");
+    ctx.font = "800 13px system-ui";
+    ctx.fillText(`${Math.round(config.dataset.samples * ratio).toLocaleString()} samples`, legendX + 34, legendY + 22);
+    legendY += 62;
   });
+
   ctx.fillStyle = css("--muted");
-  ctx.font = "800 14px system-ui";
-  ctx.fillText(`Training data will be partitioned across ${config.clients} clients using ${config.skew}.`, 42, y + 142);
+  ctx.font = "800 15px system-ui";
+  ctx.fillText(`Only the train split is distributed across ${config.clients} FL clients. Validation/test stay centralized for evaluation.`, 42, height - 34);
 }
 
 function drawSplitCanvas(config, distributions) {
@@ -812,27 +840,27 @@ function drawSplitCanvas(config, distributions) {
   const height = canvas.clientHeight || canvas.height;
   clearCanvas(ctx, width, height);
   const left = 118;
-  const top = 52;
-  const rowHeight = Math.max(38, Math.min(58, (height - 118) / Math.max(1, distributions.length)));
+  const top = 48;
+  const rowHeight = Math.max(28, Math.min(42, (height - 104) / Math.max(1, distributions.length)));
   const barWidth = width - left - 118;
   ctx.fillStyle = css("--text");
-  ctx.font = "900 22px system-ui";
-  ctx.fillText("Client training partitions", 26, 34);
+  ctx.font = "900 18px system-ui";
+  ctx.fillText("Client training partitions", 26, 30);
   distributions.forEach((row, rowIndex) => {
     const y = top + rowIndex * rowHeight;
     ctx.fillStyle = css("--muted");
-    ctx.font = "900 14px system-ui";
-    ctx.fillText(row.name, 26, y + 26);
+    ctx.font = "900 12px system-ui";
+    ctx.fillText(row.name, 26, y + 20);
     let x = left;
     row.values.forEach((value, index) => {
       const w = Math.max(2, value * barWidth);
       ctx.fillStyle = palette[index % palette.length];
-      ctx.fillRect(x, y, w, rowHeight - 10);
+      ctx.fillRect(x, y, w, rowHeight - 7);
       x += w;
     });
     ctx.fillStyle = css("--muted");
-    ctx.font = "800 12px system-ui";
-    ctx.fillText(`${row.samples} samples`, width - 104, y + 26);
+    ctx.font = "800 11px system-ui";
+    ctx.fillText(`${row.samples} samples`, width - 104, y + 20);
   });
   const labels = distributions[0]?.classes || [];
   let legendX = left;
@@ -1503,7 +1531,7 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.fillRect(0, 0, width, height);
 
   const simulationActive = activeView === "simulation" && activeSimulation;
-  const panelWidth = simulationActive ? Math.min(430, Math.max(340, width * 0.34)) : 0;
+  const panelWidth = simulationActive ? Math.min(390, Math.max(320, width * 0.3)) : 0;
   const sceneWidth = width - panelWidth;
   const center = { x: sceneWidth / 2, y: height / 2 + (simulationActive ? 8 : 0) };
   const radius = Math.min(sceneWidth, height) * (simulationActive ? 0.31 : 0.34);
@@ -1570,7 +1598,7 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   ctx.font = "700 11px system-ui";
   ctx.fillText(finished ? "finished" : simulationActive ? `Delta ${signedNumber(aggregation.value)}` : personalized ? "+ local heads" : "global model", center.x, center.y + 15);
   if (simulationActive) {
-    drawAggregationEngine(ctx, sceneWidth + 14, 70, panelWidth - 30, Math.min(470, height - 110), activeSimulation.config, aggregationRows, aggregation, phaseIndex);
+    drawAggregationEngine(ctx, sceneWidth + 12, 68, panelWidth - 24, Math.min(450, height - 112), activeSimulation.config, aggregationRows, aggregation, phaseIndex);
   }
 }
 
@@ -1695,16 +1723,18 @@ function drawAggregationEngine(ctx, x, y, w, h, config, rows, aggregation, phase
   ctx.stroke();
 
   ctx.fillStyle = "#e2e8f0";
-  ctx.font = "900 20px system-ui";
-  ctx.fillText("Aggregation engine", x + 18, y + 34);
+  ctx.font = "900 18px system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText("Aggregation engine", x + w / 2, y + 32);
   ctx.fillStyle = "#93c5fd";
-  ctx.font = "900 15px system-ui";
-  ctx.fillText(config.aggregation, x + 18, y + 58);
+  ctx.font = "900 14px system-ui";
+  ctx.fillText(config.aggregation, x + w / 2, y + 54);
   ctx.fillStyle = "rgba(226, 232, 240, 0.78)";
   ctx.font = "800 12px system-ui";
-  wrapCanvasText(ctx, aggregationTeachingText(config.aggregation), x + 18, y + 82, w - 36, 17, 2);
+  wrapCanvasText(ctx, aggregationTeachingText(config.aggregation), x + 22, y + 78, w - 44, 16, 3, "center");
+  ctx.textAlign = "left";
 
-  const axisY = y + 164;
+  const axisY = y + 170;
   const axisX = x + 28;
   const axisW = w - 56;
   ctx.strokeStyle = "rgba(226, 232, 240, 0.38)";
@@ -1783,21 +1813,30 @@ function signedNumber(value) {
   return `${value >= 0 ? "+" : ""}${Number(value).toFixed(2)}`;
 }
 
-function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 4) {
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 4, align = "left") {
   const words = text.split(" ");
   let line = "";
   let lines = 0;
+  const drawLine = (value, lineIndex) => {
+    if (align === "center") {
+      ctx.textAlign = "center";
+      ctx.fillText(value, x + maxWidth / 2, y + lineIndex * lineHeight);
+      ctx.textAlign = "left";
+    } else {
+      ctx.fillText(value, x, y + lineIndex * lineHeight);
+    }
+  };
   words.forEach((word) => {
     const test = line ? `${line} ${word}` : word;
     if (ctx.measureText(test).width > maxWidth && line) {
-      if (lines < maxLines) ctx.fillText(line, x, y + lines * lineHeight);
+      if (lines < maxLines) drawLine(line, lines);
       line = word;
       lines += 1;
     } else {
       line = test;
     }
   });
-  if (line && lines < maxLines) ctx.fillText(line, x, y + lines * lineHeight);
+  if (line && lines < maxLines) drawLine(line, lines);
 }
 
 function handleNetworkClick(event) {

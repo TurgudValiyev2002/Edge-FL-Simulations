@@ -439,11 +439,11 @@ input:disabled {
 }
 
 #splitSummaryCanvas {
-  height: 360px;
+  height: 380px;
 }
 
 #splitCanvas {
-  height: 640px;
+  height: 430px;
 }
 
 .scene-overlay {
