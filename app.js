@@ -1,4 +1,5 @@
 const palette = ["#38bdf8", "#34d399", "#fbbf24", "#fb7185", "#a78bfa", "#fb923c", "#22c55e", "#f97316"];
+const PLAYBACK_FRAMES_PER_ROUND = 4;
 
 const datasets = [
   {
@@ -1038,11 +1039,11 @@ function playLiveResult() {
       clearInterval(liveTimer);
       return;
     }
-    const maxRound = activeSimulation.result.curve.length;
-    if (activeSimulation.round >= maxRound) {
+    const maxStep = activeSimulation.result.curve.length * PLAYBACK_FRAMES_PER_ROUND;
+    if (activeSimulation.round >= maxStep) {
       activeSimulation.running = false;
       activeSimulation.finished = true;
-      renderLiveState(maxRound);
+      renderLiveState(maxStep);
       els.startLiveButton.disabled = false;
       els.startLiveButton.textContent = "Rerun Simulation";
       els.startLiveOverlay.classList.remove("hidden");
@@ -1063,14 +1064,16 @@ function stopLiveSimulation() {
 function renderLiveState(round) {
   const { config, result } = activeSimulation;
   const preparedOnly = !activeSimulation.running && !activeSimulation.finished;
+  const playbackStep = Math.max(0, round || 0);
+  const logicalRound = playbackLogicalRound(playbackStep, result.curve.length);
   const baseTrainCurve = result.trainCurve?.length ? result.trainCurve : deriveTrainCurve(result.curve, result.classification);
   const baseTrainLoss = result.trainLoss?.length ? result.trainLoss : deriveTrainLoss(result.loss);
-  const curve = preparedOnly ? [0] : playbackSeries(result.curve, round);
-  const loss = preparedOnly ? [0] : playbackSeries(result.loss, round);
-  const trainCurve = preparedOnly ? [0] : playbackSeries(baseTrainCurve, round);
-  const trainLoss = preparedOnly ? [0] : playbackSeries(baseTrainLoss, round);
-  const validationCurve = preparedOnly && result.validationCurve?.length ? [0] : playbackSeries(result.validationCurve || [], round);
-  const validationLoss = preparedOnly && result.validationLoss?.length ? [0] : playbackSeries(result.validationLoss || [], round);
+  const curve = preparedOnly ? [0] : playbackSeries(result.curve, playbackStep);
+  const loss = preparedOnly ? [0] : playbackSeries(result.loss, playbackStep);
+  const trainCurve = preparedOnly ? [0] : playbackSeries(baseTrainCurve, playbackStep);
+  const trainLoss = preparedOnly ? [0] : playbackSeries(baseTrainLoss, playbackStep);
+  const validationCurve = preparedOnly && result.validationCurve?.length ? [0] : playbackSeries(result.validationCurve || [], playbackStep);
+  const validationLoss = preparedOnly && result.validationLoss?.length ? [0] : playbackSeries(result.validationLoss || [], playbackStep);
   activeSimulation.displayedCurve = curve;
   activeSimulation.displayedLoss = loss;
 
@@ -1080,10 +1083,10 @@ function renderLiveState(round) {
   const phases = config.mode === "personalized"
     ? ["Share backbone", "Local heads adapt", "Clients send adapted updates", "Personalized evaluation"]
     : ["Broadcast global weights", "Local training changes weights", "Clients upload model deltas", `${config.aggregation} creates next global model`];
-  const phase = activeSimulation.running ? phases[aggregationPhaseIndex()] : phases[Math.min(round % phases.length, phases.length - 1)];
+  const phase = activeSimulation.running ? phases[aggregationPhaseIndex()] : phases[Math.min(logicalRound % phases.length, phases.length - 1)];
 
   const maxRound = Math.max(0, result.curve.length - 1);
-  const displayRound = Math.max(0, Math.min(round - 1, maxRound));
+  const displayRound = Math.max(0, Math.min(logicalRound, maxRound));
   els.roundLabel.textContent = preparedOnly ? `Ready: 0 / ${maxRound}` : activeSimulation.finished ? `Finished at round ${maxRound}` : `Round ${displayRound} / ${maxRound}`;
   els.phaseLabel.textContent = activeSimulation.finished ? "Training complete: final global model is ready" : (activeSimulation.running ? phase : "Ready: click Start Live Simulation");
   els.primaryMetricLabel.textContent = classification ? "Balanced accuracy" : "RMSE";
@@ -1112,10 +1115,23 @@ function renderLiveState(round) {
   renderMatrix(config, displayResult);
 }
 
-function playbackSeries(values, round) {
+function playbackSeries(values, step) {
   if (!values.length) return [];
-  if (round <= 0) return [0];
-  return [0, ...values.slice(0, round)];
+  if (step <= 0) return [0];
+  const completed = Math.min(values.length, Math.floor(step / PLAYBACK_FRAMES_PER_ROUND));
+  const within = (step % PLAYBACK_FRAMES_PER_ROUND) / PLAYBACK_FRAMES_PER_ROUND;
+  const series = [0, ...values.slice(0, completed)];
+  if (completed < values.length && within > 0) {
+    const previous = completed === 0 ? 0 : values[completed - 1];
+    const next = values[completed];
+    series.push(previous + (next - previous) * within);
+  }
+  return series;
+}
+
+function playbackLogicalRound(step, valueCount) {
+  const maxRound = Math.max(0, valueCount - 1);
+  return Math.min(maxRound, Math.floor(Math.max(0, step) / PLAYBACK_FRAMES_PER_ROUND));
 }
 
 function preparedDisplayResult(config, result, classification) {
@@ -1548,7 +1564,8 @@ function drawNetworkScene(ctx, width, height, clientCount, centerLabel, personal
   lastNodeHitboxes = activeView === "simulation" ? [{ type: "server", index: 0, x: center.x, y: center.y, r: 58 }] : [];
   const liveMotion = activeView !== "simulation" || activeSimulation?.running;
   const finished = activeView === "simulation" && activeSimulation?.finished;
-  const aggregationRows = simulationActive ? clientAggregationRows(activeSimulation.config, activeSimulation.result, activeSimulation.round, clientCount) : [];
+  const currentRound = simulationActive ? playbackLogicalRound(activeSimulation.round, activeSimulation.result.curve?.length || 1) : 0;
+  const aggregationRows = simulationActive ? clientAggregationRows(activeSimulation.config, activeSimulation.result, currentRound, clientCount) : [];
   const aggregation = simulationActive ? aggregateClientUpdates(aggregationRows, activeSimulation.config.aggregation) : { value: 0, selected: [], trimmed: [] };
   if (simulationActive) drawPhaseRibbon(ctx, sceneWidth, phaseIndex, finished);
 
@@ -1856,8 +1873,8 @@ function handleNetworkClick(event) {
   const hit = lastNodeHitboxes.find((node) => Math.hypot(node.x - x, node.y - y) <= node.r);
   if (!hit) return;
   const config = activeSimulation.config;
+  const round = playbackLogicalRound(activeSimulation.round, activeSimulation.result.curve?.length || 1);
   if (hit.type === "server") {
-    const round = activeSimulation.round;
     const testValue = activeSimulation.result.curve?.[round] ?? activeSimulation.result.finalMetric ?? 0;
     const trainValue = activeSimulation.result.trainCurve?.[round] ?? testValue;
     const rows = clientAggregationRows(config, activeSimulation.result, round, config.clients);
@@ -1873,8 +1890,8 @@ function handleNetworkClick(event) {
   const distribution = activeSimulation.result.distributions?.[hit.index - 1];
   const samples = distribution?.samples ?? Math.round(config.dataset.samples / config.clients);
   const localCurve = localClientCurve(activeSimulation.result, hit.index);
-  const latest = localCurve[Math.min(activeSimulation.round, localCurve.length - 1)] ?? 0;
-  const row = clientAggregationRows(config, activeSimulation.result, activeSimulation.round, config.clients)[hit.index - 1];
+  const latest = localCurve[Math.min(round, localCurve.length - 1)] ?? 0;
+  const row = clientAggregationRows(config, activeSimulation.result, round, config.clients)[hit.index - 1];
   els.nodeDetails.innerHTML = `
     <small>Client ${hit.index}</small>
     <strong>${samples} local samples</strong>
